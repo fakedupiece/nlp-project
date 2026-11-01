@@ -1,0 +1,4 @@
+-r requirements-gpu.txt
+
+# Install only when the inspected Kaggle GPU supports the selected 4-bit path.
+bitsandbytes>=0.43,<1

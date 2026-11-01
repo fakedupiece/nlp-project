@@ -1,0 +1,4 @@
+# Stage 2+ only. Kaggle normally provides PyTorch; inspect its installed CUDA
+# build before changing it. Freeze exact tested versions in run metadata.
+transformers>=4.44,<5
+accelerate>=0.33,<2
