@@ -7,6 +7,7 @@ commit, and never stores the Hugging Face token in exported metadata.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from hashlib import sha256
@@ -215,7 +216,9 @@ class TransformersBackend:
         model_device = getattr(self.model, "device", None)
         if hasattr(encoded, "to") and model_device is not None:
             encoded = encoded.to(model_device)
-        if isinstance(encoded, dict):
+        # Hugging Face BatchEncoding implements Mapping via UserDict.
+        # Treating it as a tensor fails on .shape and loses attention_mask.
+        if isinstance(encoded, Mapping):
             model_inputs = encoded
             input_ids = encoded["input_ids"]
         else:

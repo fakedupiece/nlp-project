@@ -96,3 +96,22 @@ Single Prompting calls and 162 Full Sequential with Both calls; retries increase
 those observed totals and must remain visible. Stage 2 is not GO merely because
 the process exits successfully: confirm every parse status and reconcile every
 prediction with its call IDs.
+
+## Restart after the tokenizer compatibility fix
+
+Older code treated Hugging Face `BatchEncoding` as a tensor because it checked
+only for `dict`. This can raise `AttributeError` on the first inference after
+the model loads. The backend now accepts all `Mapping` outputs and preserves
+both `input_ids` and `attention_mask`. Regression tests cover a `UserDict`
+batch (the same container base as `BatchEncoding`), ordinary dictionaries,
+and the tensor-only fallback. This fix has CPU test coverage; it is not a
+claim of a completed Kaggle GPU run.
+
+For an existing Kaggle session, set `CODE_COMMIT` to the full commit containing
+the fix. Fetch and check out that commit in the existing clean `REPO_ROOT`
+instead of rerunning the clone cell (which intentionally rejects an existing
+directory). Leave the pinned model revision and the chosen quantization
+unchanged. Use a new `OUTPUT_DIR` so that the failed run's artifacts remain
+available. Run the configuration cell, then the GPU/Secrets cell, and finally
+the execution cell. The Secrets cell must run again because the execution
+cell removes `HF_TOKEN` from its environment on exit, including on failure.

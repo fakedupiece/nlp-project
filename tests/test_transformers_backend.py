@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from collections import UserDict
 from contextlib import nullcontext
 from hashlib import sha256
 from types import SimpleNamespace
@@ -26,6 +27,21 @@ class FakeTensor:
 class FakeBatch(dict):
     def __init__(self, values):
         super().__init__(input_ids=FakeTensor([values]))
+        self.moved_to = None
+
+    def to(self, device):
+        self.moved_to = device
+        return self
+
+
+class FakeBatchEncoding(UserDict):
+    """BatchEncoding is a UserDict, not a dict, and also carries a mask."""
+
+    def __init__(self, values):
+        super().__init__(
+            input_ids=FakeTensor([values]),
+            attention_mask=FakeTensor([[1] * len(values)]),
+        )
         self.moved_to = None
 
     def to(self, device):
@@ -164,6 +180,44 @@ def test_complete_uses_chat_template_greedy_generation_and_counts_tokens():
     assert response.output_tokens == 2
     assert torch.seed == 7
     assert torch.cuda.seed == 7
+
+
+@pytest.mark.parametrize("batch_type", [FakeBatch, FakeBatchEncoding, FakeTensor])
+def test_complete_handles_mapping_and_tensor_tokenizer_outputs(batch_type):
+    encoded = (
+        FakeTensor([[10, 11, 12]])
+        if batch_type is FakeTensor
+        else batch_type([10, 11, 12])
+    )
+    tokenizer = FakeTokenizer()
+    tokenizer.apply_chat_template = lambda *args, **kwargs: encoded
+    model = FakeModel()
+    backend = TransformersBackend(
+        tokenizer=tokenizer,
+        model=model,
+        torch_module=FakeTorch(),
+        metadata=_metadata(),
+    )
+
+    response = backend.complete(
+        CallRequest(
+            request_id="opaque",
+            method=MethodName.SINGLE_PROMPTING,
+            prompt="inert request",
+            prompt_template="test-v1",
+        )
+    )
+
+    assert response.input_tokens == 3
+    assert response.output_tokens == 2
+    assert tokenizer.decoded[0] == [90, 91]
+    if batch_type is FakeTensor:
+        assert model.generate_kwargs["input_ids"] is encoded
+    else:
+        assert encoded.moved_to is model.device
+        assert model.generate_kwargs["input_ids"] is encoded["input_ids"]
+    if batch_type is FakeBatchEncoding:
+        assert model.generate_kwargs["attention_mask"] is encoded["attention_mask"]
 
 
 @pytest.mark.parametrize("revision", ["", "main", "abc", "g" * 40])
