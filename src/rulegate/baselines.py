@@ -17,7 +17,8 @@ from .prompts import (
     render_single_prompt,
 )
 from .schemas import POLICY_IDS, Policy
-from .verification import SequentialBothVerifier, strip_single_code_fence
+from .jsonreply import strip_single_code_fence
+from .verification import SequentialBothVerifier
 
 
 class SinglePromptingParseError(ValueError):

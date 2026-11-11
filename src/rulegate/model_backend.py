@@ -36,6 +36,10 @@ class CallRequest:
     fallback_used: bool = False
     fallback_type: str | None = None
     raw_response_path: str | None = None
+    # Optional per-call generation cap (None: the backend default). Screening
+    # replies list nine labels and need more room than a one-field verdict;
+    # the verifier always uses the default so compared conditions match.
+    max_new_tokens: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -145,6 +149,7 @@ class CallRecord:
     parsed_output: str | None
     failure_reason: str | None
     raw_response_path: str | None
+    max_new_tokens: int | None = None
 
 
 class CallLedger:
@@ -316,6 +321,7 @@ class InstrumentedBackend:
             parsed_output=None,
             failure_reason=None,
             raw_response_path=request.raw_response_path,
+            max_new_tokens=request.max_new_tokens,
         )
 
 

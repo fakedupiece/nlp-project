@@ -122,3 +122,15 @@ Classification: development model runs on the design split only.
   parsed; mean policy F1 0.2457 vs 0.3407; exact-match accuracy 0.1111 both.
   `rulegate.stage2_gate`: **GO** (17/17 checks).
 - Next: Stage 3 preparation (plain and action-aware screening), CPU only.
+
+## 2026-11-11 — Stage 3 preparation (CPU only)
+
+Classification: implementation and synthetic tests. No screening model run.
+
+- Added versioned `plain-screening-v1` and `action-aware-screening-v1`
+  templates, the action-aware parser, per-call generation caps, the Stage 3
+  runner/report (`rulegate.stage3`) and Kaggle mode `stage3-design`.
+- Synthetic fake-backend run on the official 18 design requests: full
+  reference 162 calls; each screening condition 18 screening + 54 verifier
+  calls (fake screen retains three policies). Infrastructure check only.
+- Full suite: 154 passed. Plan and open decisions: `docs/stage3_plan.md`.

@@ -203,3 +203,28 @@ def test_public_or_missing_token_dataset_blocks_the_push(monkeypatch):
     monkeypatch.setattr(controller, "dataset_privacy", lambda ref: None)
     with pytest.raises(controller.ControllerError, match="not found"):
         controller.require_private_token_dataset("alice/rulegate-hf-token")
+
+
+def test_stage3_config_defaults_to_all_design_requests_and_both_conditions():
+    config = controller.build_run_config(
+        _args(mode="stage3-design", model_revision="b" * 40, limit=None,
+              conditions="plain,action-aware"),
+        COMMIT,
+        "run-s3",
+    )
+    assert config["conditions"] == ["plain", "action-aware"]
+    assert config["limit"] == 18
+    with pytest.raises(controller.ControllerError, match="--conditions"):
+        controller.build_run_config(
+            _args(mode="stage3-design", model_revision="b" * 40, limit=None,
+                  conditions="plain,rrf"),
+            COMMIT,
+            "run-s3b",
+        )
+    with pytest.raises(controller.ControllerError, match="requires --model-revision"):
+        controller.build_run_config(
+            _args(mode="stage3-design", model_revision="resolve", limit=None,
+                  conditions="plain"),
+            COMMIT,
+            "run-s3c",
+        )

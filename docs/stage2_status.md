@@ -34,8 +34,9 @@ retaining the gold policy for every violating request.
 
 Implication for Stage 3: the verifier is fixed. RuleGate can only keep or lose
 the verifier's true positives, so screening recall on gold policies is the
-critical quantity for H1, and fewer than 4.5 verified policies per request on
-average (with one screening call) is needed for H2.
+critical quantity for H1, and at most 3.5 verified policies per request on
+average (one screening call, no retries: 1 + 3.5 = 4.5 = half of 9 calls) is
+needed for H2.
 
 ## History
 

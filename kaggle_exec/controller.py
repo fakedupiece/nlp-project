@@ -61,7 +61,7 @@ TERMINAL_STATES = {"COMPLETE", "ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED
 ACTIVE_STATES = {"QUEUED", "RUNNING", "NEW_SCRIPT"}
 SENTINEL = '"""__RULEGATE_RUN_CONFIG__"""'
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-DEFAULT_TIMEOUTS = {"probe": 1800, "smoke-gpu": 3600, "run-design": 7200}
+DEFAULT_TIMEOUTS = {"probe": 1800, "smoke-gpu": 3600, "run-design": 7200, "stage3-design": 7200}
 
 
 class ControllerError(RuntimeError):
@@ -248,8 +248,8 @@ def build_run_config(args: argparse.Namespace, code_commit: str, run_id: str) ->
     from rulegate.stage2 import BENCHMARK_COMMIT, DEFAULT_MODEL_ID, DEFAULT_SEED
 
     revision = args.model_revision
-    if args.mode == "run-design" and not COMMIT_RE.fullmatch(revision or ""):
-        raise ControllerError("run-design requires --model-revision <40-char HF commit>")
+    if args.mode in {"run-design", "stage3-design"} and not COMMIT_RE.fullmatch(revision or ""):
+        raise ControllerError(f"{args.mode} requires --model-revision <40-char HF commit>")
     if revision not in (None, "resolve") and not COMMIT_RE.fullmatch(revision):
         raise ControllerError("--model-revision must be a 40-char commit or 'resolve'")
     config: dict[str, Any] = {
@@ -270,7 +270,16 @@ def build_run_config(args: argparse.Namespace, code_commit: str, run_id: str) ->
         "hf_token_dataset": getattr(args, "hf_token_dataset_ref", None),
         "hf_token_file": TOKEN_FILE,
     }
+    if args.mode == "stage3-design":
+        conditions = [c.strip() for c in args.conditions.split(",") if c.strip()]
+        if not conditions or not set(conditions) <= {"plain", "action-aware"}:
+            raise ControllerError("--conditions must list plain and/or action-aware")
+        config["conditions"] = conditions
+        config["limit"] = 18 if args.limit is None else args.limit
+        if not 1 <= config["limit"] <= 18:
+            raise ControllerError("--limit must be between 1 and 18 design requests")
     if args.mode == "smoke-gpu":
+        args.limit = 2 if args.limit is None else args.limit
         if not 1 <= args.limit <= 18:
             raise ControllerError("--limit must be between 1 and 18 design requests")
         config["limit"] = args.limit
@@ -484,6 +493,74 @@ def _metric_lines(summary: dict[str, Any]) -> list[str]:
     return lines
 
 
+def _stage3_lines(summary: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
+    """Report rows for a ``rulegate.stage3`` summary (IDs and counts only)."""
+
+    lines = [
+        "",
+        "## Stage 3 conditions (design split; development evidence only)",
+        "",
+        "| Condition | Calls | Calls/request | Input tok | Output tok | Latency s "
+        "| Mean policy F1 | Exact-match acc | Parse status |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |",
+    ]
+    compact: dict[str, Any] = {}
+    for name, entry in summary.get("conditions", {}).items():
+        calls = entry["calls"]
+        metrics = entry.get("metrics") or {}
+        f1 = metrics.get("policy", {}).get("mean_f1")
+        acc = metrics.get("requests", {}).get("exact_match_accuracy")
+        lines.append(
+            f"| {name} | {calls['total_calls']} | {calls['mean_calls_per_request']:.2f} "
+            f"| {calls['input_tokens']} | {calls['output_tokens']} "
+            f"| {calls['elapsed_seconds']:.1f} | {'n/a' if f1 is None else f'{f1:.4f}'} "
+            f"| {'n/a' if acc is None else f'{acc:.4f}'} | {entry['parse_status']} |"
+        )
+        compact[name] = {"calls": calls["total_calls"], "mean_f1": f1}
+    for name, entry in summary.get("conditions", {}).items():
+        screening = entry.get("screening")
+        if not screening:
+            continue
+        retention = screening["gold_policy_retention"]
+        misses = screening["screening_induced_misses"]
+        lines += [
+            "",
+            f"### {name}",
+            "",
+            f"- Screens valid {screening['valid_screens']}/{screening['requests']}; "
+            f"invalid -> full fallback {screening['invalid_screens_full_fallback']}; "
+            f"valid zero-candidate {screening['valid_zero_candidate_screens']}",
+            f"- Verified policies per request: mean {screening['mean_verified_policies']:.2f}; "
+            f"distribution {screening['candidate_count_distribution']}; labels "
+            f"{screening['label_counts']}",
+            f"- Gold-policy retention (screening recall): {retention['retained']}/"
+            f"{retention['violating_requests']}",
+            f"- Screening-induced misses: gold excluded although full detected it "
+            f"{misses['gold_excluded_but_full_detected']}; full-verifier positives excluded "
+            f"{misses['full_positives_excluded']}; verdict mismatches on retained policies "
+            f"{screening['verdict_mismatches_vs_full_on_retained']}",
+        ]
+        comparison = entry.get("vs_full_sequential_both")
+        if comparison:
+            delta = comparison["h1_delta_f1"]
+            lines += [
+                f"- vs Full Sequential with Both ({comparison['note']}): call reduction "
+                f"{comparison['h2_call_reduction']:.2%} (H2 rule: {comparison['h2_status']}); "
+                f"input-token ratio {comparison['token_ratio_input']:.2f}, latency ratio "
+                f"{comparison['latency_ratio']:.2f}",
+                f"- Delta mean policy F1 {delta['point_estimate']:+.4f}, 95% paired bootstrap "
+                f"CI [{delta['confidence_low']:+.4f}, {delta['confidence_high']:+.4f}] "
+                f"(H1 rule: {comparison['h1_status']})",
+            ]
+            compact[name].update(
+                call_reduction=comparison["h2_call_reduction"],
+                delta_f1=delta["point_estimate"],
+                ci_low=delta["confidence_low"],
+                gold_retention=retention["retained"],
+            )
+    return lines, compact
+
+
 def build_report(record: dict[str, Any], output_dir: Path) -> tuple[str, dict[str, Any]]:
     """Return (markdown report, compact history entry). No raw model text."""
 
@@ -602,6 +679,10 @@ def build_report(record: dict[str, Any], output_dir: Path) -> tuple[str, dict[st
                 k: row[k] for k in ("requests", "calls", "input_tokens", "output_tokens",
                                     "latency_seconds", "failed_calls")
             }
+    if summary.get("stage") == 3:
+        stage3_lines, history_calls = _stage3_lines(summary)
+        lines += stage3_lines
+        lines += ["", f"All verifier outputs parsed: `{summary.get('all_verdicts_parsed')}`"]
     metric_lines = _metric_lines(summary)
     if metric_lines:
         lines += [
@@ -828,7 +909,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor", help="check local tools and Kaggle authentication")
 
     run = sub.add_parser("run", help="push a run, wait, download outputs and report")
-    run.add_argument("--mode", choices=("probe", "smoke-gpu", "run-design"), required=True)
+    run.add_argument("--mode", choices=("probe", "smoke-gpu", "run-design", "stage3-design"),
+                     required=True)
     run.add_argument("--commit", default="HEAD", help="RuleGate commit (must be on origin)")
     run.add_argument("--repo-url", default=DEFAULT_REPO_URL)
     run.add_argument("--model-revision", default=None,
@@ -837,7 +919,10 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--dtype", choices=("auto", "float16", "bfloat16"), default=DEFAULT_DTYPE)
     run.add_argument("--max-new-tokens", type=int, default=128)
     run.add_argument("--max-attempts", type=int, default=1)
-    run.add_argument("--limit", type=int, default=2, help="smoke-gpu design subset size")
+    run.add_argument("--limit", type=int, default=None,
+                     help="design subset size (smoke-gpu default 2; stage3-design default 18)")
+    run.add_argument("--conditions", default="plain,action-aware",
+                     help="stage3-design screening conditions")
     run.add_argument("--accelerator", default=DEFAULT_ACCELERATOR,
                      help="Kaggle machine shape, or 'none' for a CPU-only probe")
     run.add_argument("--hf-token-dataset", default=None,

@@ -335,8 +335,11 @@ class TransformersBackend:
             if hasattr(self._torch, "inference_mode")
             else nullcontext()
         )
+        max_new_tokens = request.max_new_tokens or self.metadata.max_new_tokens
+        if max_new_tokens <= 0:
+            raise ValueError("max_new_tokens must be positive")
         generation_kwargs: dict[str, object] = {
-            "max_new_tokens": self.metadata.max_new_tokens,
+            "max_new_tokens": max_new_tokens,
             "do_sample": False,
         }
         pad_token_id = getattr(self.tokenizer, "pad_token_id", None)

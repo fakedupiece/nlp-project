@@ -680,6 +680,32 @@ def _validated_commit(value: str, *, name: str) -> str:
     return value.lower()
 
 
+def add_real_model_arguments(command: argparse.ArgumentParser) -> None:
+    """Arguments shared by every real-model command (Stage 2 and Stage 3)."""
+
+    command.add_argument("--data-root", type=Path, required=True)
+    command.add_argument("--output-dir", type=Path, required=True)
+    command.add_argument("--code-commit", required=True)
+    command.add_argument("--model-id", default=DEFAULT_MODEL_ID)
+    command.add_argument("--model-revision", required=True)
+    command.add_argument("--quantization", choices=("none", "4bit"), default="none")
+    command.add_argument(
+        "--dtype",
+        choices=("auto", "float16", "bfloat16"),
+        default="auto",
+        help="weights/activation dtype; keep identical across compared methods",
+    )
+    command.add_argument("--max-new-tokens", type=int, default=128)
+    command.add_argument("--max-attempts", type=int, default=1)
+    command.add_argument("--seed", type=int, default=DEFAULT_SEED)
+    command.add_argument(
+        "--raw-response-file",
+        type=Path,
+        default=None,
+        help="optional private JSONL of raw model responses for diagnosis",
+    )
+
+
 def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -687,29 +713,6 @@ def _build_parser() -> argparse.ArgumentParser:
     smoke = subparsers.add_parser("smoke", help="run both baselines with a fake backend")
     smoke.add_argument("--data-root", type=Path, required=True)
     smoke.add_argument("--output-dir", type=Path, required=True)
-
-    def add_real_model_arguments(command: argparse.ArgumentParser) -> None:
-        command.add_argument("--data-root", type=Path, required=True)
-        command.add_argument("--output-dir", type=Path, required=True)
-        command.add_argument("--code-commit", required=True)
-        command.add_argument("--model-id", default=DEFAULT_MODEL_ID)
-        command.add_argument("--model-revision", required=True)
-        command.add_argument("--quantization", choices=("none", "4bit"), default="none")
-        command.add_argument(
-            "--dtype",
-            choices=("auto", "float16", "bfloat16"),
-            default="auto",
-            help="weights/activation dtype; keep identical across compared methods",
-        )
-        command.add_argument("--max-new-tokens", type=int, default=128)
-        command.add_argument("--max-attempts", type=int, default=1)
-        command.add_argument("--seed", type=int, default=DEFAULT_SEED)
-        command.add_argument(
-            "--raw-response-file",
-            type=Path,
-            default=None,
-            help="optional private JSONL of raw model responses for diagnosis",
-        )
 
     design = subparsers.add_parser(
         "run-design",

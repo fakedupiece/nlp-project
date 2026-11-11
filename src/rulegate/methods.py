@@ -39,22 +39,22 @@ METHOD_CONTRACTS: tuple[MethodContract, ...] = (
     MethodContract(
         MethodName.SINGLE_PROMPTING,
         "one call containing all nine policies",
-        "single-prompting-v1-reimplementation",
+        "single-prompting-v2-reimplementation",
     ),
     MethodContract(
         MethodName.FULL_SEQUENTIAL_BOTH,
         "one unchanged verifier call per selected policy",
-        "sequential-both-v1-reimplementation",
+        "sequential-both-v2-reimplementation",
     ),
     MethodContract(
         MethodName.PLAIN_SCREENING,
         "one screening call, before verification",
-        "typed stub; freeze before locked-test execution",
+        "plain-screening-v1 (design development; freeze before locked test)",
     ),
     MethodContract(
         MethodName.ACTION_AWARE_SCREENING,
         "one screening call, before verification",
-        "typed stub; freeze before locked-test execution",
+        "action-aware-screening-v1 (design development; freeze before locked test)",
     ),
 )
 

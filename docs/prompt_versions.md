@@ -47,3 +47,15 @@ Also fixed: template rendering no longer rejects request text containing
 The full Sequential-with-Both baseline and the later screened conditions use
 the same `make_sequential_both_verifier` factory, so the verifier prompt,
 system message and parser stay identical across compared conditions.
+
+## Screening v1 — `plain-screening-v1`, `action-aware-screening-v1` (Stage 3, not yet run)
+
+RuleGate's own method, so these are new templates rather than
+reimplementations. Shared: a screening system message (separate from the
+verifier's), `<policies>`/`<user_request>` blocks, the inert-data instruction,
+and identical labelling rules (POSSIBLE, UNCERTAIN, EXCLUDE; EXCLUDE only when
+confident; UNCERTAIN when in doubt; zero, one or several policies may need
+review). The action-aware template adds one step (identify action, target and
+content, then judge each policy against that) and three short output fields.
+Output: `{"labels": [...nine entries...]}`, plus `action`/`target`/`content`
+for action-aware. Generation cap 384 tokens for the screening call only.

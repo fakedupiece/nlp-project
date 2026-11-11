@@ -42,7 +42,14 @@ from typing import Any, Callable
 
 RUN_CONFIG_JSON = r"""__RULEGATE_RUN_CONFIG__"""
 
-MODES = ("probe", "smoke-gpu", "run-design")
+MODES = ("probe", "smoke-gpu", "run-design", "stage3-design")
+# mode -> (module, subcommand) invoked inside the clean pinned checkout.
+MODE_COMMANDS = {
+    "smoke-gpu": ("rulegate.stage2", "smoke-gpu"),
+    "run-design": ("rulegate.stage2", "run-design"),
+    "stage3-design": ("rulegate.stage3", "run-design"),
+}
+STAGE3_CONDITIONS = {"plain", "action-aware"}
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
 DEFAULT_OUTPUT_ROOT = Path("/kaggle/working/rulegate")
 DEFAULT_SCRATCH_ROOT = Path("/tmp/rulegate")
@@ -77,14 +84,24 @@ def load_config(raw: str = RUN_CONFIG_JSON) -> dict[str, Any]:
         if not COMMIT_RE.fullmatch(str(config.get(key, ""))):
             raise ValueError(f"{key} must be a lowercase 40-character commit")
     revision = config.get("model_revision")
-    if mode == "run-design" and not COMMIT_RE.fullmatch(str(revision or "")):
-        raise ValueError("run-design requires an exact 40-character model_revision")
+    if mode in {"run-design", "stage3-design"} and not COMMIT_RE.fullmatch(
+        str(revision or "")
+    ):
+        raise ValueError(f"{mode} requires an exact 40-character model_revision")
     if revision not in (None, "resolve") and not COMMIT_RE.fullmatch(str(revision)):
         raise ValueError("model_revision must be a 40-character commit or 'resolve'")
-    if mode == "smoke-gpu":
-        limit = config.get("limit")
+    if mode == "stage3-design":
+        conditions = config.get("conditions")
+        if (
+            not isinstance(conditions, list)
+            or not conditions
+            or not set(conditions) <= STAGE3_CONDITIONS
+        ):
+            raise ValueError(f"stage3-design conditions must be a subset of {STAGE3_CONDITIONS}")
+    if mode in {"smoke-gpu", "stage3-design"}:
+        limit = config.get("limit", 18 if mode == "stage3-design" else None)
         if isinstance(limit, bool) or not isinstance(limit, int) or not 1 <= limit <= 18:
-            raise ValueError("smoke-gpu requires an integer limit from 1 through 18")
+            raise ValueError(f"{mode} requires an integer limit from 1 through 18")
     for key in ("repo_url", "benchmark_url", "model_id", "run_id"):
         if not isinstance(config.get(key), str) or not config[key]:
             raise ValueError(f"{key} must be a non-empty string")
@@ -648,8 +665,8 @@ def main(
         command = [
             sys.executable,
             "-m",
-            "rulegate.stage2",
-            mode,
+            MODE_COMMANDS[mode][0],
+            MODE_COMMANDS[mode][1],
             "--data-root",
             str(benchmark),
             "--output-dir",
@@ -675,6 +692,13 @@ def main(
         ]
         if mode == "smoke-gpu":
             command += ["--limit", str(config["limit"])]
+        if mode == "stage3-design":
+            command += [
+                "--limit",
+                str(config.get("limit", 18)),
+                "--conditions",
+                ",".join(config["conditions"]),
+            ]
         child_env = dict(os.environ)
         child_env.update(
             HF_TOKEN=token,
@@ -694,13 +718,13 @@ def main(
                 log_path=output_root / "stage2.log",
             )
             status.fact("stage2_exit_code", code)
-            if code == 3 and mode == "smoke-gpu":
+            if code == 3 and mode in {"smoke-gpu", "stage3-design"}:
                 return code
             if code != 0:
-                raise StageFailed(f"rulegate.stage2 {mode} exited with code {code}")
+                raise StageFailed(f"{MODE_COMMANDS[mode][0]} {mode} exited with code {code}")
             return code
 
-        exit_code = timed("stage2_" + mode.replace("-", "_"), stage2)
+        exit_code = timed("run_" + mode.replace("-", "_"), stage2)
         child_env.pop("HF_TOKEN", None)
         if exit_code == 3:
             status.finish(

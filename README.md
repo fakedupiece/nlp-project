@@ -43,7 +43,7 @@ python -m pip install -e '.[dev]'
 python -m pytest -q
 ```
 
-The current suite has 107 tests covering multiline parsing, leakage
+The current suite has 154 tests covering multiline parsing, leakage
 boundaries, Appendix D F1 corner cases, paired bootstrap decisions, strict screen
 parsing, full fallback, retry accounting, tokens, latency, baseline prompts,
 design-only artifacts, the optional Transformers adapter, H2 call reduction, the
@@ -120,6 +120,11 @@ verification, retries, auxiliary calls, and full fallback.
   backend with no import-time GPU dependency.
 - `src/rulegate/stage2.py`: design-only baseline CLI (`smoke`, `smoke-gpu`,
   `run-design`) and safe artifact writer.
+- `src/rulegate/screening_prompts.py`, `stage3.py`: versioned plain and
+  action-aware screening prompts and the Stage 3 design runner (full reference
+  plus screened conditions, screening recall, induced misses, indicative H1/H2).
+  See [Stage 3 plan](docs/stage3_plan.md).
+- `src/rulegate/stage2_gate.py`: mechanical Stage 2 GO audit.
 - `kaggle_exec/runner.py`, `kaggle_exec/controller.py`: remote Kaggle runner
   template and local push/poll/fetch/report controller.
 - `src/rulegate/methods.py`: typed method contracts.

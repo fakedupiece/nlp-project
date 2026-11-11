@@ -345,3 +345,32 @@ def test_401_and_403_gated_errors_get_different_actions():
 
     assert "invalid" in runner.classify_hf_error(GatedRepoError("401 Client Error"))
     assert "not approved" in runner.classify_hf_error(GatedRepoError("403 Client Error"))
+
+
+def test_stage3_design_invokes_stage3_module_with_conditions(tmp_path, monkeypatch):
+    remote = FakeRemote(monkeypatch)
+    runner.main(
+        _config(mode="stage3-design", model_revision="b" * 40,
+                conditions=["plain", "action-aware"], limit=18),
+        output_root=tmp_path / "out",
+        scratch_root=tmp_path / "scratch",
+        secret_reader=lambda name: SECRET,
+    )
+    assert _status(tmp_path)["final_status"] == "ok"
+    command, _ = next(c for c in remote.commands if "rulegate.stage3" in c[0])
+    assert command[command.index("rulegate.stage3") + 1] == "run-design"
+    assert command[command.index("--conditions") + 1] == "plain,action-aware"
+    assert command[command.index("--limit") + 1] == "18"
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"mode": "stage3-design", "model_revision": "resolve", "conditions": ["plain"]},
+        {"mode": "stage3-design", "model_revision": "b" * 40, "conditions": ["bm25"]},
+        {"mode": "stage3-design", "model_revision": "b" * 40, "conditions": []},
+    ],
+)
+def test_stage3_config_requires_pinned_revision_and_known_conditions(overrides):
+    with pytest.raises(ValueError):
+        runner.load_config(json.dumps(_config(**overrides)))
