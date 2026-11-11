@@ -180,7 +180,8 @@ def run_command(
 ) -> tuple[int, str]:
     """Run a command, streaming redacted output to stdout and an optional log."""
 
-    print("$ " + redact(" ".join(command)), flush=True)
+    shown = " ".join(part if "\n" not in part else "<inline code>" for part in command)
+    print("$ " + redact(shown), flush=True)
     process = subprocess.Popen(
         command,
         stdout=subprocess.PIPE,

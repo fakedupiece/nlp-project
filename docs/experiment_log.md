@@ -78,3 +78,18 @@ smoke. No model inference.
   (Hugging Face `main`, public API). Gated with manual approval.
 - Full suite after changes: 107 passed.
 - Kaggle GPU runs: `NOT RUN` — local Kaggle CLI is not authenticated yet.
+
+## 2026-11-11 — Kaggle probe (run `20261111T123836Z-probe-bb70169f`)
+
+Classification: remote environment probe. No model weights loaded, no inference.
+
+- Code `bb70169f`; kernel `edudum/rulegate-runner` v1 (private, GPU, Internet).
+- Kaggle status `COMPLETE`; runner status `probe_incomplete` (expected).
+- GPU: 2 x Tesla T4, 14.6 GiB each, compute capability 7.5, no native bf16
+  (confirms the float16 profile). torch `2.11.0+cu130`, transformers `4.57.6`,
+  accelerate `1.15.0`, huggingface_hub `0.36.2` (all preinstalled versions
+  satisfied the requirements).
+- Code and benchmark clones verified at the pinned commits; remote CPU tests
+  `107 passed`.
+- Blocker: `HF_TOKEN` Kaggle secret not attached to the kernel (user action).
+  Report: `results/dev/reports/20261111T123836Z-probe-bb70169f.md`.
