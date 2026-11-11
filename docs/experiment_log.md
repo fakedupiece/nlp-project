@@ -147,3 +147,25 @@ Classification: development model run on the design split only.
   full. Plain: 9/9, mean 4.44, 98 calls. Stage 3 gate: action-aware **GO**,
   plain CONTINUE (ablation, not iterated). Details: `docs/stage3_status.md`.
 - Fixed a report bug that applied the Stage 2 gate to Stage 3 artifacts.
+
+## 2026-11-11 — Verifier fidelity review: v3 Stage 2 run
+
+Classification: development model run on the design split only.
+
+- Diagnosis of v2 (Stage 2 run `...8c58fa30`): "violated" on 37/153 non-gold
+  request-policy pairs (24%), mostly policies 4 and 6; 7/9 compliant requests
+  flagged. Paper Llama-8B S.P. with Both implies ~19% of compliant requests
+  flagged (~2% per pair).
+- v3 (`sequential-both-v3-reimplementation`, code `d5bcd51`) composes both
+  reframings into one question. Adoption rule declared before the run: adopt
+  if every output parses, independent of F1 or closeness to the paper.
+- Run `20261111T164456Z-run-design-d5bcd515` (kernel v10): 162/162 verifier
+  outputs parsed; Stage 2 gate GO. Full Sequential: "violated" on 116/153
+  non-gold pairs (76%), 9/9 compliant requests flagged, 6.94 policy IDs per
+  request, mean policy F1 0.1307 (v2: 0.3407). Single Prompting unchanged
+  (0.2457).
+- Finding: the literal composition reproduces the paper's S.P. with Request P.
+  behaviour for Llama-8B (flags nearly everything), not its S.P. with Both.
+  Neither v2 nor v3 reproduces the paper's conservative profile. Adoption is
+  pending the research lead's decision (the declared rule says adopt v3; v3
+  moves the baseline away from the paper and would favour H1).
