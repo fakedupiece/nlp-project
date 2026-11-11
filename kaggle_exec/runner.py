@@ -330,7 +330,23 @@ def read_hf_secret(name: str) -> str | None:
     try:
         value = UserSecretsClient().get_secret(name)
     except Exception as exc:  # noqa: BLE001 - any failure means "not available"
-        SECRET_ERROR["error"] = f"{type(exc).__name__}: {str(exc)[:400]}"
+        detail = f"{type(exc).__name__}: {str(exc)[:200]}"
+        # kaggle_secrets wraps every URLError (including HTTP 4xx refusals) in a
+        # generic ConnectionError; the cause carries the real HTTP status.
+        cause = exc.__cause__
+        if cause is not None:
+            detail += (
+                f" | cause {type(cause).__name__} code={getattr(cause, 'code', None)} "
+                f"reason={str(getattr(cause, 'reason', ''))[:120]}"
+            )
+            reader = getattr(cause, "read", None)
+            if callable(reader):
+                try:
+                    body = reader()[:300].decode("utf-8", errors="replace")
+                    detail += f" body={body}"
+                except Exception:  # noqa: BLE001
+                    pass
+        SECRET_ERROR["error"] = detail
         return None
     if not value:
         SECRET_ERROR["error"] = "secret lookup returned an empty value"
@@ -482,6 +498,17 @@ def main(
         status.fact("hf_secret_available", bool(token))
         if not token and SECRET_ERROR.get("error"):
             status.fact("hf_secret_error", redact(SECRET_ERROR["error"]))
+            status.fact(
+                "kaggle_session",
+                {
+                    "run_type": os.environ.get("KAGGLE_KERNEL_RUN_TYPE"),
+                    "url_base": os.environ.get("KAGGLE_URL_BASE"),
+                    "user_secrets_token_present": bool(
+                        os.environ.get("KAGGLE_USER_SECRETS_TOKEN")
+                    ),
+                    "iap_token_present": bool(os.environ.get("KAGGLE_IAP_TOKEN")),
+                },
+            )
         if not token:
             blocker = (
                 f"Kaggle secret {secret_name} is not attached to this notebook. Open "

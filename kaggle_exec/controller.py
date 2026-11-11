@@ -498,6 +498,8 @@ def build_report(record: dict[str, Any], output_dir: Path) -> tuple[str, dict[st
     lines.append(f"- HF secret available: `{facts.get('hf_secret_available')}`")
     if facts.get("hf_secret_error"):
         lines.append(f"- HF secret lookup error: `{facts['hf_secret_error']}`")
+    if facts.get("kaggle_session"):
+        lines.append(f"- Kaggle session: `{json.dumps(facts['kaggle_session'])}`")
     access = facts.get("model_access") or {}
     if access:
         lines.append(
