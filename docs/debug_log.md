@@ -46,7 +46,7 @@ v3 and `585ac4d` v4 on CPU only, so no GPU quota was spent on diagnosis).
   token but cannot be verified byte-for-byte against the pinned Hugging Face
   revision, because Hugging Face masks LFS SHA-256 values of gated repos for
   anonymous callers.
-- Fix (pending user approval of the deviation from "Kaggle Secrets"): the
+- Fix (deviation from "Kaggle Secrets" approved by the user on 2026-11-11): the
   runner still tries Kaggle Secrets first, then reads `hf_token.txt` from the
   private dataset `<user>/rulegate-hf-token` attached via `dataset_sources`.
   The controller refuses to push unless that dataset exists and is private.
