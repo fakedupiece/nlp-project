@@ -287,3 +287,22 @@ def test_token_file_is_found_under_any_mount_layout(tmp_path):
     assert value == SECRET
     assert path.endswith("hf_token.txt") and "rulegate-hf-token" in path
     assert runner.read_token_from_dataset(None, "hf_token.txt", tmp_path) == (None, None)
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "﻿hf_abc123XYZ\r\n",
+        "HF_TOKEN=hf_abc123XYZ\n",
+        '"hf_abc123XYZ"',
+        "  hf_abc123XYZ  \n\n",
+    ],
+)
+def test_token_file_variants_are_normalized(text):
+    assert runner.normalize_token_text(text) == "hf_abc123XYZ"
+    assert runner.token_shape(runner.normalize_token_text(text)) == {
+        "present": True,
+        "length": 12,
+        "starts_with_hf_": True,
+        "has_whitespace": False,
+    }

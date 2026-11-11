@@ -372,9 +372,35 @@ def read_token_from_dataset(
     slug = dataset_ref.split("/")[-1]
     for candidate in sorted(input_root.rglob(filename)):
         if slug in candidate.parts and candidate.is_file():
-            value = candidate.read_text(encoding="utf-8").strip()
-            return (value or None), str(candidate)
+            return normalize_token_text(candidate.read_text(encoding="utf-8-sig")), str(
+                candidate
+            )
     return None, None
+
+
+def normalize_token_text(text: str) -> str | None:
+    """Accept a bare token, a ``KEY=value`` line, quotes, BOM and whitespace."""
+
+    value = text.replace("﻿", "").strip()
+    lines = [line.strip() for line in value.splitlines() if line.strip()]
+    value = lines[0] if lines else ""
+    if "=" in value:
+        value = value.split("=", 1)[1].strip()
+    value = value.strip("'\"").strip()
+    return value or None
+
+
+def token_shape(token: str | None) -> dict[str, Any]:
+    """Non-secret facts about a token for diagnosis (never the value)."""
+
+    if not token:
+        return {"present": False}
+    return {
+        "present": True,
+        "length": len(token),
+        "starts_with_hf_": token.startswith("hf_"),
+        "has_whitespace": any(ch.isspace() for ch in token),
+    }
 
 
 def check_model_access(
@@ -534,6 +560,7 @@ def main(
             if token:
                 token_source = "private_dataset"
         status.fact("hf_token_source", token_source)
+        status.fact("hf_token_shape", token_shape(token))
         if not token and SECRET_ERROR.get("error"):
             status.fact("hf_secret_error", redact(SECRET_ERROR["error"]))
             status.fact(
