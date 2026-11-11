@@ -93,3 +93,19 @@ Classification: remote environment probe. No model weights loaded, no inference.
   `107 passed`.
 - Blocker: `HF_TOKEN` Kaggle secret not attached to the kernel (user action).
   Report: `results/dev/reports/20261111T123836Z-probe-bb70169f.md`.
+
+## 2026-11-11 — First real Llama inference (smoke, 2 design requests)
+
+Classification: development smoke on the design split. Not a Stage 2 result.
+
+- Runs v2–v4: blocked on token delivery (Kaggle Secrets are not delivered to
+  API-pushed kernels; `docs/debug_log.md` D3). Switched, with user approval,
+  to a private Kaggle dataset holding the token. v5: invalid token value (D4).
+- Run `20261111T130925Z-smoke-gpu-096c8150` (code `096c815`, kernel v6):
+  Llama-3.1-8B-Instruct @ `0e9e39f249a16976918f6564b8830bc894c89659`,
+  unquantized float16 on 2 x Tesla T4 (cc 7.5), `device_map=auto`
+  (15/21 modules), load 138 s, greedy, `max_new_tokens=128`, seed 484654.
+- Calls: Single Prompting 2 (949 input / 256 output tokens, 22.6 s);
+  Full Sequential with Both 18 (4,945 / 2,304 tokens, 173.7 s). 0 backend
+  failures; **0/20 outputs parsed** (v1 prompt format, D5).
+- Next: v2 prompt templates (`docs/prompt_versions.md`), then repeat the smoke.

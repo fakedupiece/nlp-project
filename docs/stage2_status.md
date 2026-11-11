@@ -11,6 +11,11 @@ Face gated access to Llama-3.1-8B-Instruct, and the `HF_TOKEN` Kaggle secret.
 See `docs/kaggle_execution.md` and the run history in
 `results/dev/kaggle_run_history.jsonl`.
 
+Update (same day): token delivery solved via a private Kaggle dataset; the
+first real smoke run loaded the model but 0/20 v1-template outputs parsed.
+Templates were revised to v2 (`docs/prompt_versions.md`). Stage 2 remains
+CONTINUE until the strict 18-request run passes `rulegate.stage2_gate`.
+
 ## Implemented
 
 - Versioned `single-prompting-v1-reimplementation` template: all nine policies

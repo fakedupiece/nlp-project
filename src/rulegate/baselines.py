@@ -9,13 +9,15 @@ from dataclasses import dataclass
 from .methods import InferenceInput, MethodName
 from .model_backend import BackendCallError, CallRequest, InstrumentedBackend
 from .prompts import (
+    SEQUENTIAL_BOTH_SYSTEM_PROMPT,
     SEQUENTIAL_BOTH_TEMPLATE_ID,
+    SINGLE_PROMPT_SYSTEM_PROMPT,
     SINGLE_PROMPT_TEMPLATE_ID,
     make_sequential_both_prompt_builder,
     render_single_prompt,
 )
 from .schemas import POLICY_IDS, Policy
-from .verification import SequentialBothVerifier
+from .verification import SequentialBothVerifier, strip_single_code_fence
 
 
 class SinglePromptingParseError(ValueError):
@@ -30,7 +32,7 @@ def parse_single_prompt_response(text: str) -> tuple[int, ...]:
     """Parse exactly ``{"violated_policy_ids": [...]}`` and normalize ID order."""
 
     try:
-        payload = json.loads(text)
+        payload = json.loads(strip_single_code_fence(text))
     except (json.JSONDecodeError, TypeError) as exc:
         raise SinglePromptingParseError("response is not valid JSON") from exc
     if not isinstance(payload, dict) or set(payload) != {"violated_policy_ids"}:
@@ -103,6 +105,7 @@ class SinglePromptingBaseline:
                         method=MethodName.SINGLE_PROMPTING,
                         prompt=prompt,
                         prompt_template=SINGLE_PROMPT_TEMPLATE_ID,
+                        system_prompt=SINGLE_PROMPT_SYSTEM_PROMPT,
                         attempt=attempt,
                     )
                 )
@@ -150,4 +153,5 @@ def make_sequential_both_verifier(
         backend=backend,
         prompt_builder=make_sequential_both_prompt_builder(policies),
         prompt_template=SEQUENTIAL_BOTH_TEMPLATE_ID,
+        system_prompt=SEQUENTIAL_BOTH_SYSTEM_PROMPT,
     )

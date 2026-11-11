@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 
@@ -19,9 +20,27 @@ class VerificationError(RuntimeError):
     pass
 
 
+_SINGLE_FENCE = re.compile(r"^```[A-Za-z]*[ \t]*\r?\n?(?P<body>.*?)\r?\n?```$", re.DOTALL)
+
+
+def strip_single_code_fence(text: str) -> str:
+    """Remove one Markdown code fence wrapping the whole reply, if present.
+
+    Parser revision for the v2 prompts: a reply that is exactly one JSON object
+    inside one fence (for example a ```json block) is accepted. Any other prose
+    around or inside the fence still fails JSON parsing.
+    """
+
+    if not isinstance(text, str):
+        return text
+    stripped = text.strip()
+    match = _SINGLE_FENCE.fullmatch(stripped)
+    return match.group("body").strip() if match else stripped
+
+
 def parse_json_verdict(text: str) -> bool:
     try:
-        payload = json.loads(text)
+        payload = json.loads(strip_single_code_fence(text))
     except (json.JSONDecodeError, TypeError) as exc:
         raise VerificationParseError("verdict is not valid JSON") from exc
     if not isinstance(payload, dict) or set(payload) != {"violated"}:
@@ -56,11 +75,13 @@ class SequentialBothVerifier:
         prompt_builder: PromptBuilder,
         prompt_template: str,
         verdict_parser: VerdictParser = parse_json_verdict,
+        system_prompt: str | None = None,
     ) -> None:
         self.backend = backend
         self.prompt_builder = prompt_builder
         self.prompt_template = prompt_template
         self.verdict_parser = verdict_parser
+        self.system_prompt = system_prompt
 
     def verify_full(
         self,
@@ -120,6 +141,7 @@ class SequentialBothVerifier:
                             method=MethodName.FULL_SEQUENTIAL_BOTH,
                             prompt=prompt,
                             prompt_template=self.prompt_template,
+                            system_prompt=self.system_prompt,
                             policy_id=policy_id,
                             attempt=attempt,
                             fallback_used=fallback_used,

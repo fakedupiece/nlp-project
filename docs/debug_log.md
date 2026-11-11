@@ -51,3 +51,28 @@ v3 and `585ac4d` v4 on CPU only, so no GPU quota was spent on diagnosis).
   private dataset `<user>/rulegate-hf-token` attached via `dataset_sources`.
   The controller refuses to push unless that dataset exists and is private.
   The value is redacted from all logs and never copied to outputs.
+
+### D4. Hugging Face 401 with the dataset token
+
+- Run `20261111T130638Z-smoke-gpu-8845d8d4` (v5): token delivered from the
+  private dataset, but `model_access` failed with `GatedRepoError 401`.
+- Diagnosis from recorded token shape only: the parsed value was 6 characters
+  without the `hf_` prefix, from a 45-byte file. The reader had taken the wrong
+  part of a multi-part file (e.g. a label line). 401 means unauthenticated,
+  not "access not approved" (403).
+- Fix (`27c3766`, `096c815`): extract the `hf_...` token anywhere in the file;
+  record only raw length, line count and whether the pattern was found; give
+  distinct guidance for 401 and 403. Run v6 then passed `model_access`.
+
+## 2026-11-11 — First real inference: prompt format
+
+### D5. Llama-3.1-8B-Instruct ignored the v1 JSON-only instruction
+
+- Run `20261111T130925Z-smoke-gpu-096c8150` (v6, GPU): model loaded in 138 s
+  (float16, 2 x T4, 6.7 + 8.3 GiB); 20 real calls, all `invalid_*`, every one
+  at 128 output tokens (~10 s/call). Raw responses (private) were Python code
+  or step-by-step reasoning.
+- Root cause: prompt presentation (JSON-variable labels, no system message),
+  not decoding, numerics or the parser.
+- Fix: versioned v2 templates and a fence-tolerant parser; see
+  `docs/prompt_versions.md`. Debugging cycle for this issue starts here.
