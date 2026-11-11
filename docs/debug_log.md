@@ -27,8 +27,8 @@ before reporting a blocker).
 
 ## 2026-11-11 — Hugging Face token not reaching the Kaggle kernel
 
-Debugging cycle: 3 submissions (smoke `d130bf8` v2 on GPU, probes `edb0cc0`
-v3 and `5bd5f27`-era v4 on CPU only, so no GPU quota was spent on diagnosis).
+Debugging cycle: 3 submissions (smoke `d130bf8` v2 on GPU; probes `edb0cc0`
+v3 and `585ac4d` v4 on CPU only, so no GPU quota was spent on diagnosis).
 
 ### D3. `HF_TOKEN` Kaggle secret unavailable in API-pushed kernels
 
