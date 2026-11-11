@@ -1,5 +1,44 @@
 # Stage 2 baseline status
 
+Decision: **GO** (2026-11-11). The strict 18-request design run completed on
+Kaggle and passed every check of `rulegate.stage2_gate`.
+
+## GO evidence
+
+- Run `20261111T132516Z-run-design-8c58fa30` (kernel `edudum/rulegate-runner`
+  v8, report `results/dev/reports/20261111T132516Z-run-design-8c58fa30.md`).
+- Code `8c58fa307e3c239ffd319ca4f283493a8f0632b5` (clean checkout, verified
+  remotely); benchmark `2d1944f2efa362021f931638b724714f7b74f288`.
+- Model `meta-llama/Llama-3.1-8B-Instruct` @
+  `0e9e39f249a16976918f6564b8830bc894c89659`, unquantized float16 on
+  2 x Tesla T4 (14.6 GiB, cc 7.5), `device_map=auto`, load 131.7 s;
+  greedy, temperature 0, `max_new_tokens=128`, seed 484654; torch
+  2.11.0+cu130, transformers 4.57.6, accelerate 1.15.0.
+- Prompts: `single-prompting-v2-reimplementation`,
+  `sequential-both-v2-reimplementation` (`docs/prompt_versions.md`).
+- Gate: 17/17 checks passed (complete artifacts, design split only, pinned
+  clean code and model revision, one model configuration, greedy decoding,
+  0 backend failures, 180/180 outputs parsed, token counts known, predictions
+  reconciled 1:1 with ledger calls, no retries).
+
+| Method | Calls | Input tok | Output tok | Latency s | Mean policy F1 | Exact-match acc | Compliant recall | Gold policy detected |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Single Prompting | 18 | 8,202 | 221 | 23.8 | 0.2457 | 0.1111 | 1/9 | 6/9 |
+| Full Sequential with Both | 162 | 45,828 | 1,134 | 117.5 | 0.3407 | 0.1111 | 2/9 | 9/9 |
+
+Design-split numbers (n = 18) are development evidence only, not benchmark
+results; the paper's 225-request reference for Llama-3.1-8B Sequential with
+Both (F1 0.3640, ACC 53.33%) is not comparable. Full Sequential with Both
+over-predicts (2.56 policy IDs per request on average; FN* = 9, FP = 7) while
+retaining the gold policy for every violating request.
+
+Implication for Stage 3: the verifier is fixed. RuleGate can only keep or lose
+the verifier's true positives, so screening recall on gold policies is the
+critical quantity for H1, and fewer than 4.5 verified policies per request on
+average (with one screening call) is needed for H2.
+
+## History
+
 Decision: **CONTINUE**. Baseline implementation and CPU integration are ready;
 the required Llama-3.1-8B-Instruct run on the 18 design cases remains `NOT RUN`
 until executed in Kaggle with a pinned model revision and available GPU.

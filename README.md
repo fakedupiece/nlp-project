@@ -11,9 +11,11 @@ BM25, dense retrieval, RRF, similarity ranking, or fixed Top-k selection.
 
 ## Current status
 
-Stage 0/1 is complete. Stage 2 baseline code is implemented and has passed an
-18-request fake-backend integration run; the real Kaggle/model run remains
-`NOT RUN`. The official benchmark was loaded and audited at commit
+Stage 0/1 is complete. **Stage 2 is GO** (2026-11-11): Single Prompting and
+Full Sequential Prompting with Both ran on the 18 design requests with
+Llama-3.1-8B-Instruct on Kaggle (float16, 2 x T4) and passed every check of
+`rulegate.stage2_gate`; see [Stage 2 status](docs/stage2_status.md). The
+official benchmark was loaded and audited at commit
 `2d1944f2efa362021f931638b724714f7b74f288`:
 
 - 9 policies;

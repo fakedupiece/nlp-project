@@ -1,8 +1,8 @@
 project:
   name: RuleGate
-  stage: "2-infrastructure"
+  stage: "2-go"
   inference_enabled: false
-  design_inference_enabled: false  # Enable only in reviewed Kaggle run.
+  design_inference_enabled: true  # Kaggle runner, design split only.
   locked_test_inference_enabled: false
 
 data:
@@ -38,11 +38,11 @@ model:
 methods:
   single_prompting:
     enabled: true
-    prompt_template: single-prompting-v1-reimplementation
+    prompt_template: single-prompting-v2-reimplementation
   full_sequential_both:
     enabled: true
     expected_policy_calls: 9
-    prompt_template: sequential-both-v1-reimplementation
+    prompt_template: sequential-both-v2-reimplementation
   plain_screening:
     enabled: false
   action_aware_screening:

@@ -109,3 +109,16 @@ Classification: development smoke on the design split. Not a Stage 2 result.
   Full Sequential with Both 18 (4,945 / 2,304 tokens, 173.7 s). 0 backend
   failures; **0/20 outputs parsed** (v1 prompt format, D5).
 - Next: v2 prompt templates (`docs/prompt_versions.md`), then repeat the smoke.
+
+## 2026-11-11 — v2 smoke and Stage 2 design run (GO)
+
+Classification: development model runs on the design split only.
+
+- Smoke `20261111T132039Z-smoke-gpu-bb8ba307` (code `bb8ba30`, v7): v2
+  prompts, 2 requests, 20/20 outputs parsed; 0.71 s per verifier call.
+- Stage 2 `20261111T132516Z-run-design-8c58fa30` (code `8c58fa3`, v8):
+  18 requests; Single Prompting 18 calls (8,202/221 tokens, 23.8 s), Full
+  Sequential with Both 162 calls (45,828/1,134 tokens, 117.5 s); 180/180
+  parsed; mean policy F1 0.2457 vs 0.3407; exact-match accuracy 0.1111 both.
+  `rulegate.stage2_gate`: **GO** (17/17 checks).
+- Next: Stage 3 preparation (plain and action-aware screening), CPU only.
