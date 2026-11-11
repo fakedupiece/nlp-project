@@ -44,7 +44,7 @@ METHOD_CONTRACTS: tuple[MethodContract, ...] = (
     MethodContract(
         MethodName.FULL_SEQUENTIAL_BOTH,
         "one unchanged verifier call per selected policy",
-        "sequential-both-v2-reimplementation",
+        "sequential-both-v3-reimplementation",
     ),
     MethodContract(
         MethodName.PLAIN_SCREENING,

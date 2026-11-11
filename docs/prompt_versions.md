@@ -48,6 +48,35 @@ The full Sequential-with-Both baseline and the later screened conditions use
 the same `make_sequential_both_verifier` factory, so the verifier prompt,
 system message and parser stay identical across compared conditions.
 
+## Verifier v3 — `sequential-both-v3-reimplementation` (fidelity revision, active)
+
+Why (design-split evidence, Stage 2 run `20261111T132516Z-run-design-8c58fa30`):
+v2 said "violated" for 37 of 153 non-gold request-policy pairs (24%),
+concentrated on policy 4 (9/17) and policy 6 (9/17). Over nine independent
+checks this flags 7/9 compliant requests, whereas the paper's Llama-3.1-8B
+S.P. with Both flags about 19% of compliant requests (about 2% per pair).
+The profile resembles the paper's plain S.P. for Llama-8B, where the Policy
+Association reframing had not yet been applied.
+
+What changed: Section 4 describes each reframing as replacing one side of the
+compliance question (policy -> the forbidden action it refers to; request ->
+a plan that would fulfil it) and combines the two because they are
+independent. v2 listed the two reframings as separate views and then asked
+whether the request violates the policy, which the model can read as "yes if
+either view says yes". v3 asks the single composed question: is the plan that
+would fulfil the request associated with the forbidden action the policy
+refers to? Unchanged: one call per request-policy pair, system message,
+delimited blocks, inert-data instruction, output schema `{"violated": ...}`
+and parser. Single Prompting stays on v2.
+
+Pre-declared adoption rule (written before any v3 run): v3 replaces v2 because
+it is the more literal reading of the published method description, provided
+every v3 output parses in the strict 18-request Stage 2 run. Adoption does not
+depend on F1, on gate outcomes, or on closeness to the paper's numbers. If
+outputs fail to parse, at most one formatting-only revision (v4) is allowed.
+The v2 runs remain recorded, and Stage 2 and Stage 3 are rerun with v3 because
+the verifier is shared by every condition.
+
 ## Screening v1 — `plain-screening-v1`, `action-aware-screening-v1` (Stage 3, not yet run)
 
 RuleGate's own method, so these are new templates rather than
