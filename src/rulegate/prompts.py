@@ -15,12 +15,12 @@ Version history (see ``docs/prompt_versions.md``):
   produced the requested JSON within 128 tokens.
 * ``v2`` - same method, information and output schemas. Presentation only:
   a short system message stating the reply format, plain-text delimited policy
-  and request blocks, and the format instruction placed last. Active for
-  Single Prompting; retired for the verifier after the fidelity review.
-* ``v3`` (verifier only) - fidelity revision: the two reframings are composed
-  into one question (is the plan that fulfils the request associated with the
-  policy's forbidden action?), as Section 4 describes, instead of two listed
-  views followed by "does the request violate the policy?". Active.
+  and request blocks, and the format instruction placed last. Active for both
+  Single Prompting and the verifier (frozen after the fidelity review).
+* ``v3`` (verifier only, rejected) - fidelity candidate composing the two
+  reframings into one question. It parsed on the design split but said
+  "violated" on 76% of non-gold pairs (v2: 24%), so the research lead kept v2.
+  Kept verbatim for traceability.
 
 Both methods share one system message per version so that the full baseline and
 screened conditions use the identical verifier prompt.
@@ -144,7 +144,7 @@ Reply with only this JSON object:
 
 
 # --------------------------------------------------------------------------
-# v3 verifier (fidelity revision of Sequential Prompting with Both)
+# v3 verifier (fidelity candidate; tested and rejected, kept for traceability)
 #
 # Section 4 describes each reframing as replacing one side of the compliance
 # question: the policy becomes "the forbidden action the policy refers to"
@@ -189,8 +189,10 @@ Reply with only this JSON object:
 SINGLE_PROMPT_TEMPLATE_ID = SINGLE_PROMPT_V2_TEMPLATE_ID
 SINGLE_PROMPT_TEMPLATE = SINGLE_PROMPT_V2_TEMPLATE
 SINGLE_PROMPT_SYSTEM_PROMPT: str | None = CLASSIFIER_SYSTEM_PROMPT_V2
-SEQUENTIAL_BOTH_TEMPLATE_ID = SEQUENTIAL_BOTH_V3_TEMPLATE_ID
-SEQUENTIAL_BOTH_TEMPLATE = SEQUENTIAL_BOTH_V3_TEMPLATE
+# The research lead kept v2 after the fidelity review (2026-11-11): v3 parsed
+# but moved the verifier further from the paper's behaviour (docs/prompt_versions.md).
+SEQUENTIAL_BOTH_TEMPLATE_ID = SEQUENTIAL_BOTH_V2_TEMPLATE_ID
+SEQUENTIAL_BOTH_TEMPLATE = SEQUENTIAL_BOTH_V2_TEMPLATE
 SEQUENTIAL_BOTH_SYSTEM_PROMPT: str | None = CLASSIFIER_SYSTEM_PROMPT_V2
 
 _PLACEHOLDER = re.compile(r"\{\{([A-Z_]+)\}\}")
@@ -294,6 +296,18 @@ def render_sequential_both_prompt_v2(request_text: str, policy: Policy) -> str:
     )
 
 
+def render_sequential_both_prompt_v3(request_text: str, policy: Policy) -> str:
+    """Render the rejected v3 verifier candidate (kept for traceability)."""
+
+    if not request_text.strip():
+        raise ValueError("request text must not be empty")
+    return _render(
+        SEQUENTIAL_BOTH_V3_TEMPLATE,
+        POLICY=_policy_line(policy),
+        USER_REQUEST=_request_block(request_text),
+    )
+
+
 def make_sequential_both_prompt_builder(
     policies: Sequence[Policy],
 ) -> Callable[[str, int], str]:
@@ -323,6 +337,9 @@ SINGLE_PROMPT_V1_TEMPLATE_SHA256 = template_sha256(SINGLE_PROMPT_V1_TEMPLATE)
 SEQUENTIAL_BOTH_V1_TEMPLATE_SHA256 = template_sha256(SEQUENTIAL_BOTH_V1_TEMPLATE)
 SEQUENTIAL_BOTH_V2_TEMPLATE_SHA256 = template_sha256(
     SEQUENTIAL_BOTH_V2_TEMPLATE, CLASSIFIER_SYSTEM_PROMPT_V2
+)
+SEQUENTIAL_BOTH_V3_TEMPLATE_SHA256 = template_sha256(
+    SEQUENTIAL_BOTH_V3_TEMPLATE, CLASSIFIER_SYSTEM_PROMPT_V2
 )
 SINGLE_PROMPT_TEMPLATE_SHA256 = template_sha256(
     SINGLE_PROMPT_TEMPLATE, SINGLE_PROMPT_SYSTEM_PROMPT

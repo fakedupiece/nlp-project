@@ -20,7 +20,7 @@ revised only with design-set evidence (the 18 official design requests). The
   output a plan or reasoning". The JSON-variable presentation reads as a
   programming task to this model.
 
-## v2 — `single-prompting-v2-reimplementation`, `sequential-both-v2-reimplementation` (active)
+## v2 — `single-prompting-v2-reimplementation`, `sequential-both-v2-reimplementation` (active, frozen verifier)
 
 Unchanged from v1: the method (one all-policy call; one call per request-policy
 pair), the information given to the model, both reframings combined in one
@@ -48,7 +48,7 @@ The full Sequential-with-Both baseline and the later screened conditions use
 the same `make_sequential_both_verifier` factory, so the verifier prompt,
 system message and parser stay identical across compared conditions.
 
-## Verifier v3 — `sequential-both-v3-reimplementation` (fidelity revision, active)
+## Verifier v3 — `sequential-both-v3-reimplementation` (fidelity candidate, rejected)
 
 Why (design-split evidence, Stage 2 run `20261111T132516Z-run-design-8c58fa30`):
 v2 said "violated" for 37 of 153 non-gold request-policy pairs (24%),
@@ -76,6 +76,28 @@ depend on F1, on gate outcomes, or on closeness to the paper's numbers. If
 outputs fail to parse, at most one formatting-only revision (v4) is allowed.
 The v2 runs remain recorded, and Stage 2 and Stage 3 are rerun with v3 because
 the verifier is shared by every condition.
+
+Outcome (run `20261111T164456Z-run-design-d5bcd515`): 162/162 outputs parsed,
+so the declared rule pointed to adoption. But v3 said "violated" on 116/153
+non-gold pairs (v2: 37/153), flagged 9/9 compliant requests and predicted 6.94
+policy IDs per request. This reproduces the paper's S.P. with Request P.
+behaviour for Llama-8B rather than S.P. with Both.
+
+Decision (research lead, 2026-11-11): **keep v2**; the declared rule is
+overridden, with this rationale recorded:
+
+1. The review's purpose was fidelity to the published method; v3 moved the
+   verifier further from the paper's reported behaviour.
+2. A verifier that flags nearly everything makes screening look better (every
+   excluded false positive raises F1), so keeping v2 is the choice less
+   favourable to H1.
+3. The Stage 2 GO run and the Stage 3 run used v2; their recorded template
+   hashes equal the current active hash, so those results stand without rerun.
+
+Limitation for the report: neither v2 nor v3 reproduces the conservative
+profile of the paper's Llama-3.1-8B S.P. with Both (exact author prompts are
+unpublished). H1 compares RuleGate with our own full baseline under the same
+frozen verifier.
 
 ## Screening v1 — `plain-screening-v1`, `action-aware-screening-v1` (Stage 3, not yet run)
 

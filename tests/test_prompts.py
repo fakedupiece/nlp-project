@@ -10,6 +10,7 @@ from rulegate.prompts import (
     SEQUENTIAL_BOTH_V1_TEMPLATE,
     SEQUENTIAL_BOTH_V1_TEMPLATE_SHA256,
     SEQUENTIAL_BOTH_V2_TEMPLATE_SHA256,
+    SEQUENTIAL_BOTH_V3_TEMPLATE_SHA256,
     SINGLE_PROMPT_SYSTEM_PROMPT,
     SINGLE_PROMPT_TEMPLATE_ID,
     SINGLE_PROMPT_TEMPLATE_SHA256,
@@ -19,6 +20,7 @@ from rulegate.prompts import (
     render_sequential_both_prompt,
     render_sequential_both_prompt_v1,
     render_sequential_both_prompt_v2,
+    render_sequential_both_prompt_v3,
     render_single_prompt,
     render_single_prompt_v1,
 )
@@ -34,7 +36,7 @@ def _policies():
 
 def test_active_templates_are_v2_with_a_shared_system_message():
     assert SINGLE_PROMPT_TEMPLATE_ID == "single-prompting-v2-reimplementation"
-    assert SEQUENTIAL_BOTH_TEMPLATE_ID == "sequential-both-v3-reimplementation"
+    assert SEQUENTIAL_BOTH_TEMPLATE_ID == "sequential-both-v2-reimplementation"
     assert SINGLE_PROMPT_SYSTEM_PROMPT == SEQUENTIAL_BOTH_SYSTEM_PROMPT
     assert SINGLE_PROMPT_SYSTEM_PROMPT == CLASSIFIER_SYSTEM_PROMPT_V2
     assert "exactly one JSON object" in CLASSIFIER_SYSTEM_PROMPT_V2
@@ -65,8 +67,8 @@ def test_request_is_delimited_inert_and_cannot_close_its_block():
     assert "gold_violated" not in prompt
 
 
-def test_v3_verifier_composes_both_reframings_into_one_question():
-    prompt = render_sequential_both_prompt("synthetic request", _policies()[1])
+def test_rejected_v3_candidate_is_preserved_for_traceability():
+    prompt = render_sequential_both_prompt_v3("synthetic request", _policies()[1])
 
     assert "<policy>\n2. Synthetic policy 2\n</policy>" in prompt
     assert "forbidden action that the policy refers to" in prompt
@@ -79,8 +81,10 @@ def test_v3_verifier_composes_both_reframings_into_one_question():
     assert '{"violated": true} if the answer is yes, otherwise {"violated": false}' in prompt
 
 
-def test_v2_verifier_is_preserved_for_traceability():
+def test_active_verifier_is_v2():
     prompt = render_sequential_both_prompt_v2("synthetic request", _policies()[1])
+    assert render_sequential_both_prompt("synthetic request", _policies()[1]) == prompt
+    assert SEQUENTIAL_BOTH_TEMPLATE_SHA256 == SEQUENTIAL_BOTH_V2_TEMPLATE_SHA256
 
     assert "Policy Association" in prompt and "Request Plan" in prompt
     assert "single judgment that combines both views" in prompt
@@ -108,7 +112,7 @@ def test_template_hashes_cover_system_message_and_differ_from_v1():
         SEQUENTIAL_BOTH_TEMPLATE_SHA256,
         SINGLE_PROMPT_V1_TEMPLATE_SHA256,
         SEQUENTIAL_BOTH_V1_TEMPLATE_SHA256,
-        SEQUENTIAL_BOTH_V2_TEMPLATE_SHA256,
+        SEQUENTIAL_BOTH_V3_TEMPLATE_SHA256,
     }
     assert len(hashes) == 5
     assert all(len(value) == 64 for value in hashes)

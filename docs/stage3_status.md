@@ -62,7 +62,8 @@ version, so no screening prompt iteration was used.
   full-verifier positive was a non-gold policy, so screening removed false
   positives and raised F1. With a more conservative verifier (as in the paper)
   the same screen would yield a smaller gain. The verifier-fidelity review
-  stays open.
+  is closed: v3 flagged more, the research lead kept v2, and this run used v2
+  (template hash verified), so these Stage 3 results stand.
 - **Small sample.** 9/9 retention has a 95% lower bound of 0.66; the bootstrap
   CI on 18 requests is wide and not confirmatory.
 
@@ -70,6 +71,6 @@ version, so no screening prompt iteration was used.
 
 - Stage 4 integration checks are largely covered by this run (calls and
   predictions reconciled per condition, identical verifier verdicts on
-  retained policies, candidate and latency logs). Remaining: decide the
-  verifier-fidelity review, then freeze prompts, parsers and configuration
-  for the locked 225-request run (Stage 5).
+  retained policies, candidate and latency logs). Verifier decision made
+  (v2). Remaining: freeze prompts, parsers and configuration for the locked
+  225-request run (Stage 5).

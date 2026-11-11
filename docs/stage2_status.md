@@ -38,6 +38,14 @@ critical quantity for H1, and at most 3.5 verified policies per request on
 average (one screening call, no retries: 1 + 3.5 = 4.5 = half of 9 calls) is
 needed for H2.
 
+## Verifier fidelity review (2026-11-11)
+
+A design-only review tested a more literal verifier (v3). It parsed but flagged
+far more (76% vs 24% of non-gold pairs); the research lead kept v2. The GO run
+above used v2 (template hash verified), so Stage 2 remains **GO** with the
+documented limitation that neither version reproduces the paper's conservative
+Llama-8B profile. Details: `docs/prompt_versions.md`.
+
 ## History
 
 Decision: **CONTINUE**. Baseline implementation and CPU integration are ready;

@@ -42,7 +42,7 @@ methods:
   full_sequential_both:
     enabled: true
     expected_policy_calls: 9
-    prompt_template: sequential-both-v3-reimplementation  # fidelity review 2026-11-11
+    prompt_template: sequential-both-v2-reimplementation  # kept after fidelity review 2026-11-11
   plain_screening:
     enabled: false
   action_aware_screening:

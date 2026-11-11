@@ -169,3 +169,6 @@ Classification: development model run on the design split only.
   Neither v2 nor v3 reproduces the paper's conservative profile. Adoption is
   pending the research lead's decision (the declared rule says adopt v3; v3
   moves the baseline away from the paper and would favour H1).
+- Decision (research lead): keep the v2 verifier; v3 recorded as a rejected
+  candidate. Stage 2 GO (`8c58fa3`) and Stage 3 (`9469a85`) runs used v2;
+  their recorded template hashes match the active hash, so no rerun is needed.
