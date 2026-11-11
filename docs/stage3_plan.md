@@ -1,6 +1,6 @@
 # Stage 3 plan: plain and action-aware screening
 
-Status (2026-11-11): **implemented, CPU-tested and approved; first design run pending.**
+Status (2026-11-11): **run; action-aware screening passed the Stage 3 gate (GO)** - see `docs/stage3_status.md`.
 Stage 2 is GO (`docs/stage2_status.md`).
 
 ## What Stage 3 must show on the design split

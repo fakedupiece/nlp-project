@@ -134,3 +134,16 @@ Classification: implementation and synthetic tests. No screening model run.
   reference 162 calls; each screening condition 18 screening + 54 verifier
   calls (fake screen retains three policies). Infrastructure check only.
 - Full suite: 154 passed. Plan and open decisions: `docs/stage3_plan.md`.
+
+## 2026-11-11 — Stage 3 screening pilot (GO for action-aware)
+
+Classification: development model run on the design split only.
+
+- Run `20261111T161052Z-stage3-design-9469a85c` (code `9469a85`, v9): full
+  Sequential with Both, Single Prompting, plain and action-aware screening in
+  one session; same model, revision, dtype, decoding and verifier as Stage 2.
+- Action-aware: 9/9 gold retention, mean 3.44 verified policies, 0 invalid
+  screens, 80 calls (50.6% fewer than 162), F1 0.3980 vs 0.3407, latency 2.4x
+  full. Plain: 9/9, mean 4.44, 98 calls. Stage 3 gate: action-aware **GO**,
+  plain CONTINUE (ablation, not iterated). Details: `docs/stage3_status.md`.
+- Fixed a report bug that applied the Stage 2 gate to Stage 3 artifacts.

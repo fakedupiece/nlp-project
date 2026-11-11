@@ -14,7 +14,10 @@ BM25, dense retrieval, RRF, similarity ranking, or fixed Top-k selection.
 Stage 0/1 is complete. **Stage 2 is GO** (2026-11-11): Single Prompting and
 Full Sequential Prompting with Both ran on the 18 design requests with
 Llama-3.1-8B-Instruct on Kaggle (float16, 2 x T4) and passed every check of
-`rulegate.stage2_gate`; see [Stage 2 status](docs/stage2_status.md). The
+`rulegate.stage2_gate`; see [Stage 2 status](docs/stage2_status.md).
+**Stage 3 is GO** for action-aware screening on the 18 design requests (9/9
+gold policies retained, 3.44 policies verified per request, 0 invalid screens);
+see [Stage 3 status](docs/stage3_status.md). The
 official benchmark was loaded and audited at commit
 `2d1944f2efa362021f931638b724714f7b74f288`:
 
@@ -43,7 +46,7 @@ python -m pip install -e '.[dev]'
 python -m pytest -q
 ```
 
-The current suite has 154 tests covering multiline parsing, leakage
+The current suite has 162 tests covering multiline parsing, leakage
 boundaries, Appendix D F1 corner cases, paired bootstrap decisions, strict screen
 parsing, full fallback, retry accounting, tokens, latency, baseline prompts,
 design-only artifacts, the optional Transformers adapter, H2 call reduction, the

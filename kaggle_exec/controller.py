@@ -716,7 +716,11 @@ def build_report(record: dict[str, Any], output_dir: Path) -> tuple[str, dict[st
     if "all_outputs_parsed" in summary:
         lines += ["", f"All outputs parsed: `{summary['all_outputs_parsed']}`"]
     gate_decision = None
-    if artifacts and summary.get("classification") == "development_model":
+    if (
+        artifacts
+        and summary.get("classification") == "development_model"
+        and summary.get("stage") != 3
+    ):
         from rulegate.stage2_gate import evaluate_stage2_gate
 
         requested = (record.get("config") or {}).get("model_revision")
