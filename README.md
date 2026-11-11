@@ -41,10 +41,21 @@ python -m pip install -e '.[dev]'
 python -m pytest -q
 ```
 
-The current suite has 68 tests covering multiline parsing, leakage
+The current suite has 107 tests covering multiline parsing, leakage
 boundaries, Appendix D F1 corner cases, paired bootstrap decisions, strict screen
 parsing, full fallback, retry accounting, tokens, latency, baseline prompts,
-design-only artifacts, the optional Transformers adapter, and H2 call reduction.
+design-only artifacts, the optional Transformers adapter, H2 call reduction, the
+GPU diagnostic path, and the Kaggle runner/controller.
+
+On Windows, clone the benchmark with `git -c core.autocrlf=false clone ...`;
+CRLF conversion changes the file hashes that Stage 2 verifies.
+
+## Run on Kaggle GPUs
+
+`python kaggle_exec/controller.py run --mode probe|smoke-gpu|run-design` pushes
+a private GPU script kernel with the Kaggle CLI, waits for it, downloads its
+outputs and writes a report. See [Kaggle execution](docs/kaggle_execution.md)
+and the [debugging log](docs/debug_log.md).
 
 ## Obtain and audit the benchmark
 
@@ -105,5 +116,8 @@ verification, retries, auxiliary calls, and full fallback.
   published.
 - `src/rulegate/transformers_backend.py`: optional pinned Kaggle/Hugging Face
   backend with no import-time GPU dependency.
-- `src/rulegate/stage2.py`: design-only baseline CLI and safe artifact writer.
+- `src/rulegate/stage2.py`: design-only baseline CLI (`smoke`, `smoke-gpu`,
+  `run-design`) and safe artifact writer.
+- `kaggle_exec/runner.py`, `kaggle_exec/controller.py`: remote Kaggle runner
+  template and local push/poll/fetch/report controller.
 - `src/rulegate/methods.py`: typed method contracts.

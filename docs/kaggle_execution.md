@@ -5,6 +5,74 @@ disabled by default. The Stage 2 CLI has no locked-test command; do not add one
 until the model revision, prompts, parsers, decoding settings, and experiment
 configuration are reviewed and frozen.
 
+## Automated loop (preferred)
+
+`kaggle_exec/controller.py` drives the whole cycle from a local checkout with
+the Kaggle CLI (tested with Kaggle CLI 2.2.5). It renders
+`kaggle_exec/runner.py` with a run config, pushes it as the private script
+kernel `<kaggle-user>/rulegate-runner` with GPU T4 x2 and Internet enabled,
+polls `kaggle kernels status`, downloads outputs with `kaggle kernels output`
+(plus `kaggle kernels logs`), and writes a report.
+
+```bash
+python kaggle_exec/controller.py doctor
+python kaggle_exec/controller.py run --mode probe
+python kaggle_exec/controller.py run --mode smoke-gpu --limit 2 --model-revision <40-char HF commit>
+python kaggle_exec/controller.py run --mode run-design --model-revision <40-char HF commit>
+```
+
+Modes:
+
+| Mode | What runs remotely | Model weights |
+| --- | --- | --- |
+| `probe` | GPU/CUDA/VRAM inventory, clone code + benchmark at pinned commits, install, remote CPU tests, `HF_TOKEN` secret check, gated model access check (resolves revision, downloads `config.json`) | not loaded |
+| `smoke-gpu` | probe + `rulegate.stage2 smoke-gpu --limit N`: real inference on the first N design requests; parse failures are recorded per request/policy instead of aborting | loaded |
+| `run-design` | probe + strict `rulegate.stage2 run-design` on all 18 design requests | loaded |
+
+There is no locked-test mode in the runner or the Stage 2 CLI.
+
+Rules the loop enforces:
+
+- The code commit must already be on `origin`; the remote session clones it
+  and verifies `HEAD`. `run-design` refuses anything but an exact 40-character
+  Hugging Face commit; probe/smoke may pass `resolve`, and the resolved commit
+  is recorded and then passed to Stage 2 as an exact revision.
+- Kaggle `COMPLETE` is not success. The runner writes `rulegate/status.json`
+  stage by stage inside the session and always exits 0 so that Kaggle keeps the
+  diagnostic outputs; the controller reads `final_status` and checks that the
+  downloaded `run_id` matches the run it pushed.
+- `HF_TOKEN` is read with Kaggle Secrets, passed only to the Stage 2 child
+  process environment, and redacted from every line the runner logs.
+- Raw model responses go to `rulegate/raw/raw_responses.jsonl` in the private
+  kernel output and to the git-ignored local run folder. Committed reports
+  contain counts, IDs and metadata only. Parse-failure excerpts are written to
+  the git-ignored `diagnosis.local.md`.
+- Local run folders: `results/dev/runs/kaggle/<run_id>/` (pushed kernel bundle,
+  `run_record.json`, downloaded `output/`, report). Reviewed reports:
+  `results/dev/reports/<run_id>.md`. History: one JSON line per run in
+  `results/dev/kaggle_run_history.jsonl`.
+
+GPU profile: `NvidiaTeslaT4` (2 x T4, 15 GB each, compute capability 7.5).
+T4 has no native bfloat16, so the controller defaults to `--dtype float16`
+with `--quantization none`; `device_map="auto"` splits the ~16 GB of
+unquantized weights across both GPUs. The same dtype, quantization, revision
+and decoding settings must be used for every compared condition.
+
+One-time user actions (credentials never pass through the chat or the repo):
+
+1. Authenticate the local Kaggle CLI: `kaggle auth login` (browser OAuth) or an
+   API token in `~/.kaggle/access_token`. The Kaggle account must be phone
+   verified to use GPUs and Internet in kernels.
+2. Request access to `meta-llama/Llama-3.1-8B-Instruct` on Hugging Face (manual
+   approval) and create a read token.
+3. After the first `probe` push creates the kernel, open it in the Kaggle editor,
+   Add-ons > Secrets, add `HF_TOKEN` and enable it for this notebook. Later API
+   pushes of the same kernel keep the attachment.
+
+## Manual notebook path (fallback)
+
+The rest of this guide describes the original manual notebook workflow.
+
 ## 1. Pin the code
 
 Choose and record an exact reviewed Git commit as `<RULEGATE_COMMIT>`. In a Kaggle

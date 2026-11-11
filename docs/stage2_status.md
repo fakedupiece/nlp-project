@@ -4,6 +4,13 @@ Decision: **CONTINUE**. Baseline implementation and CPU integration are ready;
 the required Llama-3.1-8B-Instruct run on the 18 design cases remains `NOT RUN`
 until executed in Kaggle with a pinned model revision and available GPU.
 
+2026-11-11: the automated Kaggle loop (`kaggle_exec/`) is implemented and CPU
+tested. Planned sequence: `probe` -> `smoke-gpu --limit 2` -> `run-design`.
+Remaining blockers are account-level: local Kaggle CLI authentication, Hugging
+Face gated access to Llama-3.1-8B-Instruct, and the `HF_TOKEN` Kaggle secret.
+See `docs/kaggle_execution.md` and the run history in
+`results/dev/kaggle_run_history.jsonl`.
+
 ## Implemented
 
 - Versioned `single-prompting-v1-reimplementation` template: all nine policies

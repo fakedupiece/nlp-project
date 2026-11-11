@@ -54,3 +54,27 @@ inference.
 - Full test suite: 68 tests passed; one unrelated preinstalled `anyio` deprecation
   warning remained.
 - Real Llama/Kaggle design run: `NOT RUN`.
+
+## 2026-11-11 — Local-to-Kaggle execution loop
+
+Classification: engineering infrastructure, CPU tests and local fake-backend
+smoke. No model inference.
+
+- Audited the repository: Stage 0/1 GO; Stage 2 code complete, real run `NOT
+  RUN` (no Kaggle evidence in the repository). Latest completed stage: 1.
+- Local workspace: Windows 11, Python 3.12.10 (installed per-user), Git 2.37,
+  Kaggle CLI 2.2.5 in `.venv`. Benchmark cloned at the audited commit with LF
+  line endings (see `docs/debug_log.md` D1, D2).
+- Existing suite: 71 passed. Local `rulegate.stage2 smoke` on the official 18
+  design requests: 18 + 162 synthetic calls, all parsed.
+- Added `kaggle_exec/runner.py` (remote script kernel) and
+  `kaggle_exec/controller.py` (push, poll, fetch, report, history).
+- Added `rulegate.stage2 smoke-gpu`: real-model diagnostic on the first N design
+  requests using the same baselines and shared verifier; parse failures are
+  recorded per request/policy instead of aborting.
+- Added explicit `--dtype` (T4 profile: `float16`, unquantized), multi-GPU
+  device metadata, load time, and an opt-in private raw-response recorder.
+- Model revision candidate: `0e9e39f249a16976918f6564b8830bc894c89659`
+  (Hugging Face `main`, public API). Gated with manual approval.
+- Full suite after changes: 107 passed.
+- Kaggle GPU runs: `NOT RUN` — local Kaggle CLI is not authenticated yet.

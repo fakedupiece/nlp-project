@@ -12,7 +12,9 @@ from contextlib import nullcontext
 from dataclasses import asdict, dataclass
 from hashlib import sha256
 import importlib
+from importlib import metadata as importlib_metadata
 import re
+from time import perf_counter
 from typing import Any
 
 from .model_backend import CallRequest, RawBackendResponse
@@ -20,6 +22,19 @@ from .model_backend import CallRequest, RawBackendResponse
 
 _COMMIT_RE = re.compile(r"^[0-9a-fA-F]{40}$")
 _QUANTIZATIONS = {"none", "4bit"}
+# "auto" keeps the checkpoint's stored dtype (bfloat16 for Llama-3.1). Kaggle's
+# T4 GPUs (compute capability 7.5) have no native bfloat16, so the T4 profile
+# selects float16 explicitly. The choice is recorded and must be identical
+# across every compared condition.
+_DTYPES = {"auto", "float16", "bfloat16"}
+
+
+@dataclass(frozen=True, slots=True)
+class CudaDeviceInfo:
+    index: int
+    name: str
+    total_memory_bytes: int
+    compute_capability: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,11 +55,62 @@ class TransformersRuntimeMetadata:
     do_sample: bool
     seed: int
     system_prompt_sha256: str | None
+    requested_dtype: str = "auto"
+    cuda_devices: tuple[CudaDeviceInfo, ...] = ()
+    device_map: tuple[tuple[str, str], ...] = ()
+    accelerate_version: str | None = None
+    bitsandbytes_version: str | None = None
+    load_seconds: float | None = None
+    memory_allocated_bytes_after_load: tuple[int, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         """Return safe run metadata; credentials are deliberately absent."""
 
         return asdict(self)
+
+
+def _validated_dtype(dtype: str | None) -> str:
+    normalized = "auto" if dtype is None else str(dtype).lower()
+    if normalized not in _DTYPES:
+        raise ValueError("dtype must be 'auto', 'float16', or 'bfloat16'")
+    return normalized
+
+
+def _distribution_version(name: str) -> str | None:
+    try:
+        return importlib_metadata.version(name)
+    except importlib_metadata.PackageNotFoundError:
+        return None
+
+
+def _cuda_devices(torch: Any) -> tuple[CudaDeviceInfo, ...]:
+    cuda = torch.cuda
+    count_fn = getattr(cuda, "device_count", None)
+    count = int(count_fn()) if callable(count_fn) else 1
+    devices: list[CudaDeviceInfo] = []
+    for index in range(count):
+        properties = cuda.get_device_properties(index)
+        capability_fn = getattr(cuda, "get_device_capability", None)
+        capability = None
+        if callable(capability_fn):
+            major, minor = capability_fn(index)
+            capability = f"{major}.{minor}"
+        devices.append(
+            CudaDeviceInfo(
+                index=index,
+                name=str(cuda.get_device_name(index)),
+                total_memory_bytes=int(properties.total_memory),
+                compute_capability=capability,
+            )
+        )
+    return tuple(devices)
+
+
+def _memory_allocated(torch: Any, device_count: int) -> tuple[int, ...]:
+    allocated_fn = getattr(torch.cuda, "memory_allocated", None)
+    if not callable(allocated_fn):
+        return ()
+    return tuple(int(allocated_fn(index)) for index in range(device_count))
 
 
 def _validated_revision(revision: str) -> str:
@@ -96,6 +162,7 @@ class TransformersBackend:
         revision: str,
         token: str | None,
         quantization: str | None = None,
+        dtype: str | None = "auto",
         system_prompt: str | None = None,
         max_new_tokens: int = 128,
         seed: int = 484654,
@@ -113,6 +180,7 @@ class TransformersBackend:
             raise ValueError("model_id must be non-empty")
         requested_revision = _validated_revision(revision)
         normalized_quantization = _validated_quantization(quantization)
+        requested_dtype = _validated_dtype(dtype)
         if max_new_tokens <= 0:
             raise ValueError("max_new_tokens must be positive")
         if isinstance(seed, bool) or not isinstance(seed, int):
@@ -122,7 +190,22 @@ class TransformersBackend:
         transformers = transformers_module or importlib.import_module("transformers")
         if not torch.cuda.is_available():
             raise RuntimeError("CUDA is required for the Stage 2 Transformers backend")
+        cuda_devices = _cuda_devices(torch)
+        if requested_dtype == "bfloat16":
+            unsupported = [
+                device
+                for device in cuda_devices
+                if device.compute_capability is not None
+                and tuple(int(part) for part in device.compute_capability.split("."))
+                < (8, 0)
+            ]
+            if unsupported:
+                raise RuntimeError(
+                    "bfloat16 requires compute capability >= 8.0; attached GPU "
+                    f"{unsupported[0].name} reports {unsupported[0].compute_capability}"
+                )
 
+        started = perf_counter()
         tokenizer = transformers.AutoTokenizer.from_pretrained(
             model_id,
             revision=requested_revision,
@@ -132,7 +215,9 @@ class TransformersBackend:
             "revision": requested_revision,
             "token": token,
             "device_map": "auto",
-            "torch_dtype": "auto",
+            "torch_dtype": (
+                "auto" if requested_dtype == "auto" else getattr(torch, requested_dtype)
+            ),
         }
         if normalized_quantization == "4bit":
             model_kwargs["quantization_config"] = transformers.BitsAndBytesConfig(
@@ -143,6 +228,13 @@ class TransformersBackend:
             **model_kwargs,
         )
         model.eval()
+        load_seconds = perf_counter() - started
+        raw_device_map = getattr(model, "hf_device_map", None)
+        device_map = (
+            tuple((str(name), str(device)) for name, device in raw_device_map.items())
+            if isinstance(raw_device_map, Mapping)
+            else ()
+        )
 
         resolved_revision = getattr(getattr(model, "config", None), "_commit_hash", None)
         if isinstance(resolved_revision, str) and _COMMIT_RE.fullmatch(
@@ -185,6 +277,15 @@ class TransformersBackend:
             do_sample=False,
             seed=seed,
             system_prompt_sha256=prompt_hash,
+            requested_dtype=requested_dtype,
+            cuda_devices=cuda_devices,
+            device_map=device_map,
+            accelerate_version=_distribution_version("accelerate"),
+            bitsandbytes_version=_distribution_version("bitsandbytes"),
+            load_seconds=load_seconds,
+            memory_allocated_bytes_after_load=_memory_allocated(
+                torch, len(cuda_devices)
+            ),
         )
         return cls(
             tokenizer=tokenizer,

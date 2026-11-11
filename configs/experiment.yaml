@@ -18,11 +18,22 @@ data:
 
 model:
   id: meta-llama/Llama-3.1-8B-Instruct
-  revision: null  # Freeze to an exact authorized revision before Stage 2.
+  # Candidate pin: Hugging Face `main` resolved to this commit on 2026-11-11
+  # (public API; last modified 2024-09-25). The Kaggle probe re-resolves it with
+  # the authorized token and records the result before any measured run.
+  revision: 0e9e39f249a16976918f6564b8830bc894c89659
   temperature: 0.0
   seed: 484654
-  quantization: null  # Select and record after inspecting the Kaggle GPU.
+  quantization: none  # Unquantized; fits 2 x T4 (2 x 15 GB) with device_map=auto.
+  dtype: float16  # T4 (compute capability 7.5) has no native bfloat16.
+  max_new_tokens: 128
   runtime: kaggle_gpu
+  kaggle:
+    kernel_slug: rulegate-runner
+    accelerator: NvidiaTeslaT4
+    private: true
+    internet: true
+    hf_token_secret: HF_TOKEN
 
 methods:
   single_prompting:

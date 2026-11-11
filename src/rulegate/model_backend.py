@@ -49,6 +49,76 @@ class RawBackend(Protocol):
     def complete(self, request: CallRequest) -> RawBackendResponse: ...
 
 
+def method_value(method: MethodName | str) -> str:
+    return method.value if isinstance(method, MethodName) else method
+
+
+def prompt_hash(request: CallRequest) -> str:
+    """Stable hash of the exact system/user prompt pair sent to the model."""
+
+    return sha256(
+        json.dumps(
+            {"system": request.system_prompt, "user": request.prompt},
+            sort_keys=True,
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()
+
+
+class RawResponseRecorder:
+    """``RawBackend`` wrapper that appends every raw model response to JSONL.
+
+    The ledger deliberately stores only parsed outputs. Diagnosing a parse
+    failure needs the literal response, so real runs may opt in to this
+    recorder. Raw text can echo benchmark request text, so the file must stay
+    in a private, review-required location (the Kaggle private output or the
+    git-ignored ``results/dev/runs`` tree), never in a committed artifact.
+
+    Entries are flushed one per attempt, so an aborted run keeps its evidence.
+    They join to ledger records through ``(request_id, method, policy_id,
+    attempt, prompt_hash)``.
+    """
+
+    def __init__(self, backend: RawBackend, path: str | Path) -> None:
+        self.backend = backend
+        self.path = Path(path)
+        if self.path.exists():
+            raise FileExistsError(f"raw response file already exists: {self.path}")
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self.path.touch()
+        self._sequence = 0
+
+    def complete(self, request: CallRequest) -> RawBackendResponse:
+        self._sequence += 1
+        entry: dict[str, object] = {
+            "sequence": self._sequence,
+            "request_id": request.request_id,
+            "method": method_value(request.method),
+            "policy_id": request.policy_id,
+            "attempt": request.attempt,
+            "prompt_template": request.prompt_template,
+            "prompt_hash": prompt_hash(request),
+        }
+        try:
+            response = self.backend.complete(request)
+        except Exception as exc:
+            entry.update(error_type=type(exc).__name__, text=None)
+            self._append(entry)
+            raise
+        entry.update(
+            error_type=None,
+            text=response.text,
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
+        )
+        self._append(entry)
+        return response
+
+    def _append(self, entry: dict[str, object]) -> None:
+        with self.path.open("a", encoding="utf-8") as handle:
+            handle.write(json.dumps(entry, sort_keys=True, ensure_ascii=False) + "\n")
+
+
 @dataclass(slots=True)
 class CallRecord:
     call_id: int
@@ -221,20 +291,13 @@ class InstrumentedBackend:
         elapsed: float,
         parse_status: str,
     ) -> CallRecord:
-        method = request.method.value if isinstance(request.method, MethodName) else request.method
         return CallRecord(
             call_id=call_id,
             request_id=request.request_id,
-            method=method,
+            method=method_value(request.method),
             policy_id=request.policy_id,
             prompt_template=request.prompt_template,
-            prompt_hash=sha256(
-                json.dumps(
-                    {"system": request.system_prompt, "user": request.prompt},
-                    sort_keys=True,
-                    separators=(",", ":"),
-                ).encode("utf-8")
-            ).hexdigest(),
+            prompt_hash=prompt_hash(request),
             model_id=self.settings.model_id,
             model_revision=self.settings.revision,
             quantization=self.settings.quantization,
