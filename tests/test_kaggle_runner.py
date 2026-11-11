@@ -306,3 +306,41 @@ def test_token_file_variants_are_normalized(text):
         "starts_with_hf_": True,
         "has_whitespace": False,
     }
+
+
+REALISTIC = "hf_" + "AbCdEfGhIjKlMnOpQrStUvWxYz01234567"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"token:\n{REALISTIC}\n",
+        f"Llama: {REALISTIC}",
+        f"name = rulegate\ntoken = {REALISTIC}\n",
+        f"﻿{REALISTIC}\r\n",
+    ],
+)
+def test_hugging_face_token_is_found_anywhere_in_the_file(text):
+    assert runner.normalize_token_text(text) == REALISTIC
+
+
+def test_dataset_reader_records_structure_but_not_the_value(tmp_path):
+    folder = tmp_path / "rulegate-hf-token"
+    folder.mkdir()
+    (folder / "hf_token.txt").write_text(f"token:\n{REALISTIC}\n", encoding="utf-8")
+    value, _ = runner.read_token_from_dataset(
+        "alice/rulegate-hf-token", "hf_token.txt", input_root=tmp_path
+    )
+    assert value == REALISTIC
+    facts = dict(runner.TOKEN_FILE_FACTS)
+    assert facts == {"raw_length": len(f"token:\n{REALISTIC}\n"), "nonblank_lines": 2,
+                     "hf_pattern_found": True}
+    assert REALISTIC not in json.dumps(facts)
+
+
+def test_401_and_403_gated_errors_get_different_actions():
+    class GatedRepoError(Exception):
+        pass
+
+    assert "invalid" in runner.classify_hf_error(GatedRepoError("401 Client Error"))
+    assert "not approved" in runner.classify_hf_error(GatedRepoError("403 Client Error"))

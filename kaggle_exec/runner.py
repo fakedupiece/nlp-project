@@ -372,15 +372,35 @@ def read_token_from_dataset(
     slug = dataset_ref.split("/")[-1]
     for candidate in sorted(input_root.rglob(filename)):
         if slug in candidate.parts and candidate.is_file():
-            return normalize_token_text(candidate.read_text(encoding="utf-8-sig")), str(
-                candidate
+            raw = candidate.read_text(encoding="utf-8-sig", errors="replace")
+            TOKEN_FILE_FACTS.clear()
+            TOKEN_FILE_FACTS.update(
+                raw_length=len(raw),
+                nonblank_lines=sum(1 for line in raw.splitlines() if line.strip()),
+                hf_pattern_found=bool(HF_TOKEN_PATTERN.search(raw)),
             )
+            return normalize_token_text(raw), str(candidate)
     return None, None
 
 
-def normalize_token_text(text: str) -> str | None:
-    """Accept a bare token, a ``KEY=value`` line, quotes, BOM and whitespace."""
+TOKEN_FILE_FACTS: dict[str, Any] = {}
 
+
+HF_TOKEN_PATTERN = re.compile(r"hf_[A-Za-z0-9]{20,}")
+
+
+def normalize_token_text(text: str) -> str | None:
+    """Extract the Hugging Face token from a small text file.
+
+    A Hugging Face access token (``hf_`` followed by alphanumerics) is taken
+    from anywhere in the file, so labels, ``KEY=value`` lines, quotes, BOMs or
+    extra lines do not matter. Without such a pattern, a bare value or the value
+    of a ``KEY=value`` first line is used.
+    """
+
+    match = HF_TOKEN_PATTERN.search(text)
+    if match:
+        return match.group(0)
     value = text.replace("﻿", "").strip()
     lines = [line.strip() for line in value.splitlines() if line.strip()]
     value = lines[0] if lines else ""
@@ -437,7 +457,20 @@ def check_model_access(
 
 def classify_hf_error(exc: BaseException) -> str:
     name = type(exc).__name__
-    if name == "GatedRepoError" or "gated" in str(exc).lower():
+    text = str(exc)
+    if name == "GatedRepoError" and "401" in text:
+        return (
+            "Hugging Face rejected the token as unauthenticated (401). The token "
+            "value is invalid, revoked or expired; replace hf_token.txt in the "
+            "private dataset with a valid read token."
+        )
+    if name == "GatedRepoError" and "403" in text:
+        return (
+            "The token is valid but its account is not approved for "
+            "meta-llama/Llama-3.1-8B-Instruct (403), or a fine-grained token lacks "
+            "gated-repo read permission."
+        )
+    if name == "GatedRepoError" or "gated" in text.lower():
         return (
             "Hugging Face denied gated access to the model. Accept the Llama 3.1 "
             "license on huggingface.co and wait for approval, and make sure the "
@@ -561,6 +594,8 @@ def main(
                 token_source = "private_dataset"
         status.fact("hf_token_source", token_source)
         status.fact("hf_token_shape", token_shape(token))
+        if TOKEN_FILE_FACTS:
+            status.fact("hf_token_file_structure", dict(TOKEN_FILE_FACTS))
         if not token and SECRET_ERROR.get("error"):
             status.fact("hf_secret_error", redact(SECRET_ERROR["error"]))
             status.fact(
