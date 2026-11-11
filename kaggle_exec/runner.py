@@ -353,6 +353,30 @@ def read_hf_secret(name: str) -> str | None:
     return value or None
 
 
+def read_token_from_dataset(
+    dataset_ref: str | None,
+    filename: str,
+    input_root: Path = Path("/kaggle/input"),
+) -> tuple[str | None, str | None]:
+    """Read a token file from an attached private dataset; return (value, path).
+
+    Kaggle Secrets are not delivered to kernels pushed with ``kaggle kernels
+    push`` (the API cannot declare them), so the documented fallback is a
+    private dataset holding only the token. The value is never logged; only
+    the mount path is recorded. Mount layouts differ between Kaggle images, so
+    the file is located by name under a directory named after the dataset slug.
+    """
+
+    if not dataset_ref or not input_root.is_dir():
+        return None, None
+    slug = dataset_ref.split("/")[-1]
+    for candidate in sorted(input_root.rglob(filename)):
+        if slug in candidate.parts and candidate.is_file():
+            value = candidate.read_text(encoding="utf-8").strip()
+            return (value or None), str(candidate)
+    return None, None
+
+
 def check_model_access(
     model_id: str,
     revision: str | None,
@@ -406,6 +430,9 @@ def main(
     output_root: Path = DEFAULT_OUTPUT_ROOT,
     scratch_root: Path = DEFAULT_SCRATCH_ROOT,
     secret_reader: Callable[[str], str | None] = read_hf_secret,
+    dataset_token_reader: Callable[[str | None, str], tuple[str | None, str | None]] = (
+        read_token_from_dataset
+    ),
 ) -> int:
     redact = Redactor()
     try:
@@ -496,6 +523,17 @@ def main(
         token = secret_reader(secret_name)
         redact.add(token)
         status.fact("hf_secret_available", bool(token))
+        token_source = "kaggle_secret" if token else None
+        dataset_ref = config.get("hf_token_dataset")
+        if not token and dataset_ref:
+            token, token_path = dataset_token_reader(
+                dataset_ref, config.get("hf_token_file", "hf_token.txt")
+            )
+            redact.add(token)
+            status.fact("hf_token_dataset_path", token_path)
+            if token:
+                token_source = "private_dataset"
+        status.fact("hf_token_source", token_source)
         if not token and SECRET_ERROR.get("error"):
             status.fact("hf_secret_error", redact(SECRET_ERROR["error"]))
             status.fact(
@@ -511,9 +549,14 @@ def main(
             )
         if not token:
             blocker = (
-                f"Kaggle secret {secret_name} is not attached to this notebook. Open "
-                "the kernel in the Kaggle editor, Add-ons > Secrets, add "
-                f"{secret_name} and enable it for this notebook."
+                f"No Hugging Face token: Kaggle secret {secret_name} is not delivered "
+                "to API-pushed kernels"
+                + (
+                    f", and no token file was found in private dataset {dataset_ref}"
+                    if dataset_ref
+                    else "; configure the private token dataset"
+                )
+                + "."
             )
             status.stage("hf_secret", "failed", 0.0, blocker)
             if mode == "probe":

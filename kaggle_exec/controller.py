@@ -45,6 +45,10 @@ REPORTS_ROOT = REPO_ROOT / "results" / "dev" / "reports"
 HISTORY_FILE = REPO_ROOT / "results" / "dev" / "kaggle_run_history.jsonl"
 
 KERNEL_SLUG = "rulegate-runner"
+# Kaggle Secrets are not delivered to API-pushed kernels (kaggle-api issue #582),
+# so the Hugging Face token comes from a private dataset holding only this file.
+TOKEN_DATASET_SLUG = "rulegate-hf-token"
+TOKEN_FILE = "hf_token.txt"
 KERNEL_TITLE = "RuleGate Runner"
 CODE_FILE = "rulegate_runner.py"
 DEFAULT_ACCELERATOR = "NvidiaTeslaT4"
@@ -146,6 +150,46 @@ def kaggle_username() -> str:
     return match.group(1)
 
 
+def dataset_privacy(ref: str) -> bool | None:
+    """Return True/False for an existing dataset's privacy, None if not found."""
+
+    owner, _, slug = ref.partition("/")
+    code = (
+        "import sys\n"
+        "from kaggle.api.kaggle_api_extended import KaggleApi\n"
+        "from kagglesdk.datasets.types.dataset_api_service import ApiGetDatasetRequest\n"
+        "api = KaggleApi()\n"
+        "api.authenticate()\n"
+        "request = ApiGetDatasetRequest()\n"
+        f"request.owner_slug = {owner!r}\n"
+        f"request.dataset_slug = {slug!r}\n"
+        "try:\n"
+        "    with api.build_kaggle_client() as client:\n"
+        "        dataset = client.datasets.dataset_api_client.get_dataset(request)\n"
+        "except Exception as exc:\n"
+        "    print('DATASET_MISSING ' + type(exc).__name__)\n"
+        "    sys.exit(0)\n"
+        "print('DATASET_PRIVATE=' + str(bool(dataset.is_private)))\n"
+    )
+    result = run_process([sys.executable, "-c", code], timeout=120)
+    match = re.search(r"DATASET_PRIVATE=(True|False)", result.stdout)
+    return None if not match else match.group(1) == "True"
+
+
+def require_private_token_dataset(ref: str) -> None:
+    private = dataset_privacy(ref)
+    if private is None:
+        raise ControllerError(
+            f"token dataset {ref} was not found. Create it (private) with "
+            "`kaggle datasets create -p <folder>`; see docs/kaggle_execution.md."
+        )
+    if not private:
+        raise ControllerError(
+            f"token dataset {ref} is PUBLIC. Make it private or delete it and "
+            "revoke that Hugging Face token immediately."
+        )
+
+
 def parse_status(output: str) -> tuple[str | None, str | None]:
     """Parse ``kaggle kernels status`` output into (STATE, failure message)."""
 
@@ -223,6 +267,8 @@ def build_run_config(args: argparse.Namespace, code_commit: str, run_id: str) ->
         "max_attempts": args.max_attempts,
         "seed": DEFAULT_SEED,
         "hf_secret_name": "HF_TOKEN",
+        "hf_token_dataset": getattr(args, "hf_token_dataset_ref", None),
+        "hf_token_file": TOKEN_FILE,
     }
     if args.mode == "smoke-gpu":
         if not 1 <= args.limit <= 18:
@@ -243,7 +289,9 @@ def render_runner(config: dict[str, Any]) -> str:
     return template.replace(SENTINEL, '"""' + payload + '"""', 1)
 
 
-def kernel_metadata(owner: str, accelerator: str) -> dict[str, Any]:
+def kernel_metadata(
+    owner: str, accelerator: str, dataset_sources: Sequence[str] = ()
+) -> dict[str, Any]:
     """Kernel settings; ``accelerator='none'`` gives a CPU session (probe only)."""
 
     metadata: dict[str, Any] = {
@@ -256,7 +304,7 @@ def kernel_metadata(owner: str, accelerator: str) -> dict[str, Any]:
         "enable_gpu": accelerator != "none",
         "enable_tpu": False,
         "enable_internet": True,
-        "dataset_sources": [],
+        "dataset_sources": list(dataset_sources),
         "competition_sources": [],
         "kernel_sources": [],
         "model_sources": [],
@@ -271,8 +319,9 @@ def write_kernel_bundle(run_dir: Path, config: dict[str, Any], owner: str, accel
     kernel_dir.mkdir(parents=True, exist_ok=False)
     rendered = render_runner(config)
     (kernel_dir / CODE_FILE).write_text(rendered, encoding="utf-8", newline="\n")
+    sources = [config["hf_token_dataset"]] if config.get("hf_token_dataset") else []
     (kernel_dir / "kernel-metadata.json").write_text(
-        json.dumps(kernel_metadata(owner, accelerator), indent=2) + "\n",
+        json.dumps(kernel_metadata(owner, accelerator, sources), indent=2) + "\n",
         encoding="utf-8",
         newline="\n",
     )
@@ -500,6 +549,8 @@ def build_report(record: dict[str, Any], output_dir: Path) -> tuple[str, dict[st
         lines.append(f"- HF secret lookup error: `{facts['hf_secret_error']}`")
     if facts.get("kaggle_session"):
         lines.append(f"- Kaggle session: `{json.dumps(facts['kaggle_session'])}`")
+    if "hf_token_source" in facts:
+        lines.append(f"- HF token source: `{facts.get('hf_token_source')}`")
     access = facts.get("model_access") or {}
     if access:
         lines.append(
@@ -692,6 +743,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     run_dir = run_dir_for(run_id)
     if args.accelerator == "none" and args.mode != "probe":
         raise ControllerError("--accelerator none is only allowed for --mode probe")
+    args.hf_token_dataset_ref = None
+    if args.hf_token_dataset != "none":
+        args.hf_token_dataset_ref = args.hf_token_dataset or f"{owner}/{TOKEN_DATASET_SLUG}"
+        require_private_token_dataset(args.hf_token_dataset_ref)
     config = build_run_config(args, code_commit, run_id)
     write_kernel_bundle(run_dir, config, owner, args.accelerator)
     record: dict[str, Any] = {
@@ -783,7 +838,11 @@ def build_parser() -> argparse.ArgumentParser:
     run.add_argument("--max-new-tokens", type=int, default=128)
     run.add_argument("--max-attempts", type=int, default=1)
     run.add_argument("--limit", type=int, default=2, help="smoke-gpu design subset size")
-    run.add_argument("--accelerator", default=DEFAULT_ACCELERATOR)
+    run.add_argument("--accelerator", default=DEFAULT_ACCELERATOR,
+                     help="Kaggle machine shape, or 'none' for a CPU-only probe")
+    run.add_argument("--hf-token-dataset", default=None,
+                     help="private dataset holding hf_token.txt (default "
+                          f"<user>/{TOKEN_DATASET_SLUG}; 'none' disables)")
     run.add_argument("--timeout", type=int, default=None, help="kernel run limit (s)")
     run.add_argument("--poll-seconds", type=float, default=30.0)
     run.add_argument("--queue-grace", type=float, default=1800.0)

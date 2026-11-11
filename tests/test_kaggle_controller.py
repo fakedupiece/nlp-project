@@ -184,3 +184,22 @@ def test_cpu_probe_metadata_disables_gpu_and_omits_machine_shape():
     assert metadata["enable_gpu"] is False
     assert "machine_shape" not in metadata
     assert controller.kernel_metadata("alice", "NvidiaTeslaT4")["machine_shape"] == "NvidiaTeslaT4"
+
+
+def test_token_dataset_is_attached_as_a_dataset_source(tmp_path):
+    args = _args()
+    args.hf_token_dataset_ref = "alice/rulegate-hf-token"
+    config = controller.build_run_config(args, COMMIT, "run-ds")
+    assert config["hf_token_dataset"] == "alice/rulegate-hf-token"
+    kernel_dir = controller.write_kernel_bundle(tmp_path, config, "alice", "NvidiaTeslaT4")
+    metadata = json.loads((kernel_dir / "kernel-metadata.json").read_text())
+    assert metadata["dataset_sources"] == ["alice/rulegate-hf-token"]
+
+
+def test_public_or_missing_token_dataset_blocks_the_push(monkeypatch):
+    monkeypatch.setattr(controller, "dataset_privacy", lambda ref: False)
+    with pytest.raises(controller.ControllerError, match="PUBLIC"):
+        controller.require_private_token_dataset("alice/rulegate-hf-token")
+    monkeypatch.setattr(controller, "dataset_privacy", lambda ref: None)
+    with pytest.raises(controller.ControllerError, match="not found"):
+        controller.require_private_token_dataset("alice/rulegate-hf-token")

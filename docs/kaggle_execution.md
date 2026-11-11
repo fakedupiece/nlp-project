@@ -65,9 +65,20 @@ One-time user actions (credentials never pass through the chat or the repo):
    verified to use GPUs and Internet in kernels.
 2. Request access to `meta-llama/Llama-3.1-8B-Instruct` on Hugging Face (manual
    approval) and create a read token.
-3. After the first `probe` push creates the kernel, open it in the Kaggle editor,
-   Add-ons > Secrets, add `HF_TOKEN` and enable it for this notebook. Later API
-   pushes of the same kernel keep the attachment.
+3. Make the Hugging Face token available to the kernel. Kaggle Secrets are
+   **not** delivered to kernels pushed with `kaggle kernels push` (the API has
+   no secrets field; see `docs/debug_log.md` D3), so the runner tries
+   `HF_TOKEN` from Kaggle Secrets first and then reads `hf_token.txt` from the
+   private dataset `<user>/rulegate-hf-token`:
+   - use a fine-grained, read-only Hugging Face token limited to the Llama
+     repository, so the stored credential has minimal scope;
+   - put only the token in `hf_token.txt` inside a folder **outside** this
+     repository next to a `dataset-metadata.json` with id
+     `<user>/rulegate-hf-token`, run `kaggle datasets create -p <folder>`
+     (private by default), then delete the local `hf_token.txt`;
+   - the controller refuses to push if that dataset is missing or public.
+   Rotate the token by uploading a new dataset version and revoking the old
+   token on Hugging Face.
 
 ## Manual notebook path (fallback)
 

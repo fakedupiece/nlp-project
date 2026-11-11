@@ -138,7 +138,7 @@ def test_probe_without_secret_reports_actionable_blocker(tmp_path, monkeypatch):
     )
     status = _status(tmp_path)
     assert status["final_status"] == "probe_incomplete"
-    assert "Add-ons > Secrets" in status["blocker"]
+    assert "not delivered to API-pushed kernels" in status["blocker"]
     assert status["facts"]["hf_secret_available"] is False
     assert [s["name"] for s in status["stages"]][:5] == [
         "environment", "clone_code", "clone_benchmark", "install", "cpu_tests"
@@ -233,3 +233,57 @@ def test_secret_lookup_error_is_recorded_without_a_value(tmp_path, monkeypatch):
     status = _status(tmp_path)
     assert status["facts"]["hf_secret_error"].startswith("BackendError: No user secrets")
     runner.SECRET_ERROR.clear()
+
+
+def test_private_dataset_token_is_used_when_secrets_are_unavailable(tmp_path, monkeypatch):
+    FakeRemote(monkeypatch)
+    seen = {}
+
+    def dataset_reader(ref, filename):
+        seen["args"] = (ref, filename)
+        return SECRET, "/kaggle/input/rulegate-hf-token/hf_token.txt"
+
+    runner.main(
+        _config(hf_token_dataset="alice/rulegate-hf-token", hf_token_file="hf_token.txt"),
+        output_root=tmp_path / "out",
+        scratch_root=tmp_path / "scratch",
+        secret_reader=lambda name: None,
+        dataset_token_reader=dataset_reader,
+    )
+    status = _status(tmp_path)
+    assert seen["args"] == ("alice/rulegate-hf-token", "hf_token.txt")
+    assert status["final_status"] == "ok"
+    assert status["facts"]["hf_token_source"] == "private_dataset"
+    for path in (tmp_path / "out").rglob("*"):
+        if path.is_file():
+            assert SECRET not in path.read_text(encoding="utf-8")
+
+
+def test_missing_dataset_token_names_both_sources(tmp_path, monkeypatch):
+    FakeRemote(monkeypatch)
+    runner.main(
+        _config(hf_token_dataset="alice/rulegate-hf-token"),
+        output_root=tmp_path / "out",
+        scratch_root=tmp_path / "scratch",
+        secret_reader=lambda name: None,
+        dataset_token_reader=lambda ref, filename: (None, None),
+    )
+    status = _status(tmp_path)
+    assert status["final_status"] == "probe_incomplete"
+    assert "alice/rulegate-hf-token" in status["blocker"]
+
+
+def test_token_file_is_found_under_any_mount_layout(tmp_path):
+    nested = tmp_path / "datasets" / "alice" / "rulegate-hf-token"
+    nested.mkdir(parents=True)
+    (nested / "hf_token.txt").write_text(SECRET + "\n", encoding="utf-8")
+    other = tmp_path / "other-dataset"
+    other.mkdir()
+    (other / "hf_token.txt").write_text("wrong", encoding="utf-8")
+
+    value, path = runner.read_token_from_dataset(
+        "alice/rulegate-hf-token", "hf_token.txt", input_root=tmp_path
+    )
+    assert value == SECRET
+    assert path.endswith("hf_token.txt") and "rulegate-hf-token" in path
+    assert runner.read_token_from_dataset(None, "hf_token.txt", tmp_path) == (None, None)
