@@ -215,3 +215,21 @@ def test_hf_errors_are_classified_without_leaking_details():
 
     assert "license" in runner.classify_hf_error(GatedRepoError("403"))
     assert "rejected the token" in runner.classify_hf_error(Exception("401 Client Error"))
+
+
+def test_secret_lookup_error_is_recorded_without_a_value(tmp_path, monkeypatch):
+    FakeRemote(monkeypatch)
+
+    def failing_reader(name):
+        runner.SECRET_ERROR["error"] = "BackendError: No user secrets exist for kernel id 1"
+        return None
+
+    runner.main(
+        _config(),
+        output_root=tmp_path / "out",
+        scratch_root=tmp_path / "scratch",
+        secret_reader=failing_reader,
+    )
+    status = _status(tmp_path)
+    assert status["facts"]["hf_secret_error"].startswith("BackendError: No user secrets")
+    runner.SECRET_ERROR.clear()

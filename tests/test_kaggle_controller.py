@@ -177,3 +177,10 @@ def test_local_diagnosis_lists_unparsed_raw_responses(tmp_path):
     text = path.read_text(encoding="utf-8")
     assert "do not commit" in text
     assert "Sure!" in text
+
+
+def test_cpu_probe_metadata_disables_gpu_and_omits_machine_shape():
+    metadata = controller.kernel_metadata("alice", "none")
+    assert metadata["enable_gpu"] is False
+    assert "machine_shape" not in metadata
+    assert controller.kernel_metadata("alice", "NvidiaTeslaT4")["machine_shape"] == "NvidiaTeslaT4"

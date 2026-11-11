@@ -244,22 +244,26 @@ def render_runner(config: dict[str, Any]) -> str:
 
 
 def kernel_metadata(owner: str, accelerator: str) -> dict[str, Any]:
-    return {
+    """Kernel settings; ``accelerator='none'`` gives a CPU session (probe only)."""
+
+    metadata: dict[str, Any] = {
         "id": f"{owner}/{KERNEL_SLUG}",
         "title": KERNEL_TITLE,
         "code_file": CODE_FILE,
         "language": "python",
         "kernel_type": "script",
         "is_private": True,
-        "enable_gpu": True,
+        "enable_gpu": accelerator != "none",
         "enable_tpu": False,
         "enable_internet": True,
-        "machine_shape": accelerator,
         "dataset_sources": [],
         "competition_sources": [],
         "kernel_sources": [],
         "model_sources": [],
     }
+    if accelerator != "none":
+        metadata["machine_shape"] = accelerator
+    return metadata
 
 
 def write_kernel_bundle(run_dir: Path, config: dict[str, Any], owner: str, accelerator: str) -> Path:
@@ -492,6 +496,8 @@ def build_report(record: dict[str, Any], output_dir: Path) -> tuple[str, dict[st
     if facts.get("cpu_tests"):
         lines.append(f"- Remote CPU tests: `{facts['cpu_tests']}`")
     lines.append(f"- HF secret available: `{facts.get('hf_secret_available')}`")
+    if facts.get("hf_secret_error"):
+        lines.append(f"- HF secret lookup error: `{facts['hf_secret_error']}`")
     access = facts.get("model_access") or {}
     if access:
         lines.append(
@@ -558,6 +564,21 @@ def build_report(record: dict[str, Any], output_dir: Path) -> tuple[str, dict[st
             lines += ["", f"Note: {summary['subset_metrics_note']}."]
     if "all_outputs_parsed" in summary:
         lines += ["", f"All outputs parsed: `{summary['all_outputs_parsed']}`"]
+    gate_decision = None
+    if artifacts and summary.get("classification") == "development_model":
+        from rulegate.stage2_gate import evaluate_stage2_gate
+
+        requested = (record.get("config") or {}).get("model_revision")
+        gate = evaluate_stage2_gate(
+            artifacts,
+            expected_model_revision=requested if requested not in (None, "resolve") else None,
+        )
+        gate_decision = gate.decision
+        lines += ["", f"## Stage 2 gate: **{gate.decision}**", ""]
+        lines += [
+            f"- {'PASS' if check.passed else 'FAIL'} `{check.name}`: {check.detail}"
+            for check in gate.checks
+        ]
 
     history = {
         "run_id": record["run_id"],
@@ -574,6 +595,7 @@ def build_report(record: dict[str, Any], output_dir: Path) -> tuple[str, dict[st
         "quantization": model.get("quantization"),
         "calls": history_calls,
         "all_outputs_parsed": summary.get("all_outputs_parsed"),
+        "stage2_gate": gate_decision,
     }
     return "\n".join(lines) + "\n", history
 
@@ -666,6 +688,8 @@ def cmd_run(args: argparse.Namespace) -> int:
     stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
     run_id = f"{stamp}-{args.mode}-{code_commit[:8]}"
     run_dir = run_dir_for(run_id)
+    if args.accelerator == "none" and args.mode != "probe":
+        raise ControllerError("--accelerator none is only allowed for --mode probe")
     config = build_run_config(args, code_commit, run_id)
     write_kernel_bundle(run_dir, config, owner, args.accelerator)
     record: dict[str, Any] = {
@@ -681,11 +705,10 @@ def cmd_run(args: argparse.Namespace) -> int:
     }
     save_record(record)
     print(f"run {run_id}: pushing {ref} (commit {code_commit}, accelerator {args.accelerator})")
-    result = kaggle(
-        "kernels", "push", "-p", str(run_dir / "kernel"),
-        "--accelerator", args.accelerator, "-t", str(args.timeout),
-        timeout=600,
-    )
+    push_args = ["kernels", "push", "-p", str(run_dir / "kernel"), "-t", str(args.timeout)]
+    if args.accelerator != "none":
+        push_args += ["--accelerator", args.accelerator]
+    result = kaggle(*push_args, timeout=600)
     push_text = (result.stdout + result.stderr).strip()
     record["push_output"] = push_text[-2000:]
     save_record(record)

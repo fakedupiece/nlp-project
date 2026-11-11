@@ -311,17 +311,29 @@ def git_clone_at(url: str, commit: str, destination: Path, redact: Redactor) -> 
     return head
 
 
-def read_hf_secret(name: str) -> str | None:
-    """Return the Kaggle secret value or None. Never prints the value."""
+SECRET_ERROR: dict[str, str] = {}
 
+
+def read_hf_secret(name: str) -> str | None:
+    """Return the Kaggle secret value or None. Never prints the value.
+
+    On failure the exception type and a truncated message are kept in
+    ``SECRET_ERROR`` for diagnosis. A failed lookup carries no secret value.
+    """
+
+    SECRET_ERROR.clear()
     try:
         from kaggle_secrets import UserSecretsClient  # type: ignore[import-not-found]
-    except ImportError:
+    except ImportError as exc:
+        SECRET_ERROR["error"] = f"{type(exc).__name__}: kaggle_secrets unavailable"
         return os.environ.get(name) or None
     try:
         value = UserSecretsClient().get_secret(name)
-    except Exception:  # noqa: BLE001 - any failure means "not attached"
+    except Exception as exc:  # noqa: BLE001 - any failure means "not available"
+        SECRET_ERROR["error"] = f"{type(exc).__name__}: {str(exc)[:400]}"
         return None
+    if not value:
+        SECRET_ERROR["error"] = "secret lookup returned an empty value"
     return value or None
 
 
@@ -468,6 +480,8 @@ def main(
         token = secret_reader(secret_name)
         redact.add(token)
         status.fact("hf_secret_available", bool(token))
+        if not token and SECRET_ERROR.get("error"):
+            status.fact("hf_secret_error", redact(SECRET_ERROR["error"]))
         if not token:
             blocker = (
                 f"Kaggle secret {secret_name} is not attached to this notebook. Open "
