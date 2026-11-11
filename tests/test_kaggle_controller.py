@@ -228,3 +228,39 @@ def test_stage3_config_defaults_to_all_design_requests_and_both_conditions():
             COMMIT,
             "run-s3c",
         )
+
+
+def test_locked_test_guard_allows_one_completed_run_per_freeze(tmp_path, monkeypatch):
+    history = tmp_path / "history.jsonl"
+    monkeypatch.setattr(controller, "HISTORY_FILE", history)
+    sha = "f" * 64
+    with pytest.raises(controller.ControllerError, match="--confirm-locked-test"):
+        controller.check_locked_test_allowed(sha, confirmed=False, rerun_reason=None)
+    controller.check_locked_test_allowed(sha, confirmed=True, rerun_reason=None)
+
+    history.write_text(json.dumps({"run_id": "r1", "mode": "locked-test",
+                                   "freeze_manifest_sha256": sha,
+                                   "runner_final_status": "failed"}) + "\n")
+    with pytest.raises(controller.ControllerError, match="--rerun-reason"):
+        controller.check_locked_test_allowed(sha, confirmed=True, rerun_reason=None)
+    controller.check_locked_test_allowed(sha, confirmed=True, rerun_reason="Kaggle OOM at load")
+
+    with history.open("a") as handle:
+        handle.write(json.dumps({"run_id": "r2", "mode": "locked-test",
+                                 "freeze_manifest_sha256": sha,
+                                 "runner_final_status": "ok"}) + "\n")
+    with pytest.raises(controller.ControllerError, match="already has a completed"):
+        controller.check_locked_test_allowed(sha, confirmed=True, rerun_reason="again")
+    # A different freeze is unaffected.
+    controller.check_locked_test_allowed("e" * 64, confirmed=True, rerun_reason=None)
+
+
+def test_locked_test_config_carries_manifest_and_confirmation():
+    args = _args(mode="locked-test", model_revision="b" * 40, limit=None)
+    args.freeze_manifest_sha256 = "f" * 64
+    args.rerun_reason = None
+    config = controller.build_run_config(args, COMMIT, "run-lt")
+    assert config["confirm_locked_test"] is True
+    assert config["manifest"] == "configs/freeze_v1.json"
+    assert config["freeze_manifest_sha256"] == "f" * 64
+    assert "limit" not in config

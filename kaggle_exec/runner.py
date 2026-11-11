@@ -15,8 +15,11 @@ Modes:
                    design requests (``rulegate.stage2 smoke-gpu``).
 * ``run-design`` - ``probe`` plus the strict 18-request Stage 2 baseline run
                    (``rulegate.stage2 run-design``).
-
-There is no locked-test mode. ``status.json`` in the output directory is the
+* ``stage3-design`` - screening conditions on the design split
+                   (``rulegate.stage3 run-design``).
+* ``locked-test`` - the single confirmatory Stage 5 run on the 225 locked
+                   requests (``rulegate.stage5 run-test``); every setting comes
+                   from the frozen manifest and explicit confirmation is required. ``status.json`` in the output directory is the
 authoritative outcome; the process exits 0 even on failure so that Kaggle keeps
 the diagnostic output files. Credentials never leave memory: the Hugging Face
 token is read from Kaggle Secrets, passed only to the child process
@@ -42,12 +45,13 @@ from typing import Any, Callable
 
 RUN_CONFIG_JSON = r"""__RULEGATE_RUN_CONFIG__"""
 
-MODES = ("probe", "smoke-gpu", "run-design", "stage3-design")
+MODES = ("probe", "smoke-gpu", "run-design", "stage3-design", "locked-test")
 # mode -> (module, subcommand) invoked inside the clean pinned checkout.
 MODE_COMMANDS = {
     "smoke-gpu": ("rulegate.stage2", "smoke-gpu"),
     "run-design": ("rulegate.stage2", "run-design"),
     "stage3-design": ("rulegate.stage3", "run-design"),
+    "locked-test": ("rulegate.stage5", "run-test"),
 }
 STAGE3_CONDITIONS = {"plain", "action-aware"}
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
@@ -84,7 +88,13 @@ def load_config(raw: str = RUN_CONFIG_JSON) -> dict[str, Any]:
         if not COMMIT_RE.fullmatch(str(config.get(key, ""))):
             raise ValueError(f"{key} must be a lowercase 40-character commit")
     revision = config.get("model_revision")
-    if mode in {"run-design", "stage3-design"} and not COMMIT_RE.fullmatch(
+    if mode == "locked-test":
+        if config.get("confirm_locked_test") is not True:
+            raise ValueError("locked-test requires confirm_locked_test=true")
+        manifest = config.get("manifest")
+        if not isinstance(manifest, str) or not manifest.endswith(".json") or ".." in manifest:
+            raise ValueError("locked-test requires a repository-relative manifest path")
+    if mode in {"run-design", "stage3-design", "locked-test"} and not COMMIT_RE.fullmatch(
         str(revision or "")
     ):
         raise ValueError(f"{mode} requires an exact 40-character model_revision")
@@ -699,6 +709,27 @@ def main(
                 "--conditions",
                 ",".join(config["conditions"]),
             ]
+        if mode == "locked-test":
+            # Every model/prompt setting comes from the verified frozen manifest.
+            command = [
+                sys.executable,
+                "-m",
+                MODE_COMMANDS[mode][0],
+                MODE_COMMANDS[mode][1],
+                "--data-root",
+                str(benchmark),
+                "--output-dir",
+                str(artifacts),
+                "--partial-dir",
+                str(output_root / "partial"),
+                "--raw-response-file",
+                str(raw_file),
+                "--code-commit",
+                config["code_commit"],
+                "--manifest",
+                str(repo / config["manifest"]),
+                "--confirm-locked-test",
+            ]
         child_env = dict(os.environ)
         child_env.update(
             HF_TOKEN=token,
@@ -718,7 +749,7 @@ def main(
                 log_path=output_root / "stage2.log",
             )
             status.fact("stage2_exit_code", code)
-            if code == 3 and mode in {"smoke-gpu", "stage3-design"}:
+            if code == 3 and mode in {"smoke-gpu", "stage3-design", "locked-test"}:
                 return code
             if code != 0:
                 raise StageFailed(f"{MODE_COMMANDS[mode][0]} {mode} exited with code {code}")

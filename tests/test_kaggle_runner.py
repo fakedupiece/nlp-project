@@ -57,7 +57,8 @@ def test_template_refuses_to_run_without_injected_config():
 @pytest.mark.parametrize(
     "overrides, message",
     [
-        ({"mode": "locked-test"}, "mode must be one of"),
+        ({"mode": "test-split"}, "mode must be one of"),
+        ({"mode": "locked-test", "model_revision": "b" * 40}, "confirm_locked_test"),
         ({"code_commit": "main"}, "code_commit"),
         ({"mode": "run-design", "model_revision": "resolve"}, "exact 40-character"),
         ({"model_revision": "main"}, "model_revision"),
@@ -374,3 +375,28 @@ def test_stage3_design_invokes_stage3_module_with_conditions(tmp_path, monkeypat
 def test_stage3_config_requires_pinned_revision_and_known_conditions(overrides):
     with pytest.raises(ValueError):
         runner.load_config(json.dumps(_config(**overrides)))
+
+
+def test_locked_test_takes_settings_from_the_manifest_only(tmp_path, monkeypatch):
+    remote = FakeRemote(monkeypatch)
+    runner.main(
+        _config(mode="locked-test", model_revision="b" * 40, confirm_locked_test=True,
+                manifest="configs/freeze_v1.json"),
+        output_root=tmp_path / "out",
+        scratch_root=tmp_path / "scratch",
+        secret_reader=lambda name: SECRET,
+    )
+    assert _status(tmp_path)["final_status"] == "ok"
+    command, _ = next(c for c in remote.commands if "rulegate.stage5" in c[0])
+    assert command[command.index("rulegate.stage5") + 1] == "run-test"
+    assert "--confirm-locked-test" in command
+    assert command[command.index("--manifest") + 1].endswith("freeze_v1.json")
+    for overridable in ("--dtype", "--model-revision", "--max-new-tokens", "--limit"):
+        assert overridable not in command
+
+
+def test_locked_test_rejects_paths_outside_the_repository():
+    with pytest.raises(ValueError, match="manifest path"):
+        runner.load_config(json.dumps(_config(
+            mode="locked-test", model_revision="b" * 40, confirm_locked_test=True,
+            manifest="../outside.json")))

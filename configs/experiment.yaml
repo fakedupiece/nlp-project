@@ -1,9 +1,9 @@
 project:
   name: RuleGate
-  stage: "2-go"
+  stage: "freeze-v1"  # Stage 2 GO, Stage 3 GO; see configs/freeze_v1.json
   inference_enabled: false
   design_inference_enabled: true  # Kaggle runner, design split only.
-  locked_test_inference_enabled: false
+  locked_test_inference_enabled: false  # rulegate.stage5 only, once per freeze
 
 data:
   root_env_var: RULEGATE_DATA_ROOT

@@ -51,7 +51,7 @@ from .prompts import (
     SEQUENTIAL_BOTH_TEMPLATE_SHA256,
     SINGLE_PROMPT_TEMPLATE_ID,
 )
-from .schemas import POLICY_IDS, BenchmarkDataset, Policy
+from .schemas import POLICY_IDS, BenchmarkDataset, DatasetRecord, Policy
 from .screening import (
     PolicyRoute,
     ScreenLabel,
@@ -177,17 +177,34 @@ def _verify_each(
     return predicted, failed, call_ids
 
 
+def _select_records(
+    dataset: BenchmarkDataset,
+    limit: int | None,
+    records: Sequence[DatasetRecord] | None,
+) -> tuple[DatasetRecord, ...]:
+    """Explicit records (e.g. the locked test for Stage 5) or the design subset."""
+
+    if records is not None:
+        if limit is not None:
+            raise ValueError("pass either records or limit, not both")
+        return tuple(records)
+    if limit is None:
+        raise ValueError("limit is required for the design split")
+    return tuple(dataset.design_records[:limit])
+
+
 def run_full_reference(
     dataset: BenchmarkDataset,
     *,
     backend: InstrumentedBackend,
-    limit: int,
+    limit: int | None = None,
+    records: Sequence[DatasetRecord] | None = None,
     max_attempts: int = 1,
     progress: ProgressCallback = _no_progress,
 ) -> ConditionRun:
     verifier = make_sequential_both_verifier(backend=backend, policies=dataset.policies)
     predictions = []
-    records = dataset.design_records[:limit]
+    records = _select_records(dataset, limit, records)
     for index, record in enumerate(records, start=1):
         request = record.to_inference_request()
         predicted, failed, call_ids = _verify_each(
@@ -221,7 +238,8 @@ def run_single_prompting(
     dataset: BenchmarkDataset,
     *,
     backend: InstrumentedBackend,
-    limit: int,
+    limit: int | None = None,
+    records: Sequence[DatasetRecord] | None = None,
     max_attempts: int = 1,
     progress: ProgressCallback = _no_progress,
 ) -> ConditionRun:
@@ -229,7 +247,7 @@ def run_single_prompting(
 
     baseline = SinglePromptingBaseline(backend=backend, policies=dataset.policies)
     predictions = []
-    records = dataset.design_records[:limit]
+    records = _select_records(dataset, limit, records)
     for index, record in enumerate(records, start=1):
         request = record.to_inference_request()
         start = len(backend.ledger.records)
@@ -310,7 +328,8 @@ def run_screened_condition(
     condition: ScreeningCondition,
     *,
     backend: InstrumentedBackend,
-    limit: int,
+    limit: int | None = None,
+    records: Sequence[DatasetRecord] | None = None,
     max_attempts: int = 1,
     progress: ProgressCallback = _no_progress,
 ) -> ConditionRun:
@@ -318,7 +337,7 @@ def run_screened_condition(
 
     verifier = make_sequential_both_verifier(backend=backend, policies=dataset.policies)
     predictions = []
-    records = dataset.design_records[:limit]
+    records = _select_records(dataset, limit, records)
     for index, record in enumerate(records, start=1):
         request = record.to_inference_request()
         decision = run_screening(
@@ -454,18 +473,25 @@ def write_stage3_artifacts(
     code_commit: str | None,
     conditions: Sequence[ScreeningCondition],
     bootstrap_resamples: int = 10_000,
+    split: str = "design",
+    comparison_note: str | None = None,
+    stage: int = 3,
 ) -> dict[str, Any]:
-    if classification not in {"synthetic_smoke", "development_smoke", "development_model"}:
+    if classification not in {
+        "synthetic_smoke", "development_smoke", "development_model", "locked_test"
+    }:
         raise ValueError("unknown classification")
     destination = _require_new_output_dir(output_dir)
     destination.mkdir(parents=True)
     request_ids = runs[0].request_ids
     if any(run.request_ids != request_ids for run in runs):
         raise ValueError("all conditions must cover the same requests")
-    trusted = {r.request_id: r for r in dataset.design_records}
+    if split not in {"design", "test"}:
+        raise ValueError("split must be design or test")
+    trusted = {r.request_id: r for r in (*dataset.design_records, *dataset.test_records)}
     gold = {rid: trusted[rid].gold_violated_policy_ids for rid in request_ids}
     _write_json(
-        destination / "trusted_design_index.json",
+        destination / f"trusted_{split}_index.json",
         [
             {
                 "request_id": rid,
@@ -478,10 +504,10 @@ def write_stage3_artifacts(
     )
     full = next((run for run in runs if run.name == FULL_REFERENCE), None)
     summary: dict[str, Any] = {
-        "stage": 3,
+        "stage": stage,
         "classification": classification,
-        "split": "design",
-        "locked_test_used": False,
+        "split": split,
+        "locked_test_used": split == "test",
         "request_count": len(request_ids),
         "all_verdicts_parsed": all(run.all_verdicts_parsed for run in runs),
         "conditions": {},
@@ -489,6 +515,8 @@ def write_stage3_artifacts(
     if classification != "synthetic_smoke":
         summary["metrics_note"] = (
             "design split only (development evidence); not the confirmatory test"
+            if split == "design"
+            else "locked 225-request test (pre-registered analysis; see docs/frozen_protocol.md)"
         )
     gold_list = [gold[rid] for rid in request_ids]
     for run in runs:
@@ -529,7 +557,8 @@ def write_stage3_artifacts(
                 n_resamples=bootstrap_resamples,
             )
             entry["vs_full_sequential_both"] = {
-                "note": "design split, n=18: indicative only, not a hypothesis test",
+                "note": comparison_note
+                or "design split, n=18: indicative only, not a hypothesis test",
                 "h2_call_reduction": h2.call_reduction,
                 "h2_status": h2.status.value,
                 "token_ratio_input": (
@@ -549,14 +578,15 @@ def write_stage3_artifacts(
                 "h1_status": decide_h1_bootstrap(bootstrap).status.value,
             }
         summary["conditions"][run.name] = entry
-    summary["stage3_gate"] = {
-        name: {
-            "role": "primary (RuleGate)" if name == PRIMARY_CONDITION else "ablation",
-            **evaluate_stage3_gate(entry, request_count=len(request_ids)),
+    if split == "design":
+        summary["stage3_gate"] = {
+            name: {
+                "role": "primary (RuleGate)" if name == PRIMARY_CONDITION else "ablation",
+                **evaluate_stage3_gate(entry, request_count=len(request_ids)),
+            }
+            for name, entry in summary["conditions"].items()
+            if "screening" in entry
         }
-        for name, entry in summary["conditions"].items()
-        if "screening" in entry
-    }
     _write_json(destination / "summary.json", summary)
     _write_json(
         destination / "run_metadata.json",
@@ -565,8 +595,11 @@ def write_stage3_artifacts(
             model_metadata=model_metadata,
             code_commit=code_commit,
             extra={
-                "stage": 3,
-                "design_subset_limit": len(request_ids),
+                "stage": summary["stage"],
+                "split": split,
+                "locked_test_used": split == "test",
+                "request_count": len(request_ids),
+                "design_subset_limit": len(request_ids) if split == "design" else None,
                 "verifier": {
                     "template_id": SEQUENTIAL_BOTH_TEMPLATE_ID,
                     "template_sha256": SEQUENTIAL_BOTH_TEMPLATE_SHA256,

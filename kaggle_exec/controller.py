@@ -61,7 +61,16 @@ TERMINAL_STATES = {"COMPLETE", "ERROR", "CANCEL_REQUESTED", "CANCEL_ACKNOWLEDGED
 ACTIVE_STATES = {"QUEUED", "RUNNING", "NEW_SCRIPT"}
 SENTINEL = '"""__RULEGATE_RUN_CONFIG__"""'
 COMMIT_RE = re.compile(r"^[0-9a-f]{40}$")
-DEFAULT_TIMEOUTS = {"probe": 1800, "smoke-gpu": 3600, "run-design": 7200, "stage3-design": 7200}
+DEFAULT_TIMEOUTS = {
+    "probe": 1800,
+    "smoke-gpu": 3600,
+    "run-design": 7200,
+    "stage3-design": 7200,
+    "locked-test": 21600,
+}
+LOCKED_REPORTS_ROOT = REPO_ROOT / "results" / "locked_test"
+FREEZE_MANIFEST = "configs/freeze_v1.json"
+COMPLETED_STATES = {"ok", "completed_with_parse_failures"}
 
 
 class ControllerError(RuntimeError):
@@ -190,6 +199,47 @@ def require_private_token_dataset(ref: str) -> None:
         )
 
 
+def locked_test_history(freeze_sha: str) -> list[dict[str, Any]]:
+    """Earlier locked-test runs of the same freeze, from the committed history."""
+
+    if not HISTORY_FILE.is_file():
+        return []
+    entries = [json.loads(line) for line in HISTORY_FILE.read_text(encoding="utf-8").splitlines() if line]
+    return [
+        entry
+        for entry in entries
+        if entry.get("mode") == "locked-test" and entry.get("freeze_manifest_sha256") == freeze_sha
+    ]
+
+
+def check_locked_test_allowed(
+    freeze_sha: str, *, confirmed: bool, rerun_reason: str | None
+) -> None:
+    """One confirmatory run per freeze; reruns only after a documented failure."""
+
+    if not confirmed:
+        raise ControllerError(
+            "the locked 225-request test runs once per freeze; pass --confirm-locked-test"
+        )
+    previous = locked_test_history(freeze_sha)
+    completed = [e for e in previous if e.get("runner_final_status") in COMPLETED_STATES]
+    if completed:
+        raise ControllerError(
+            f"freeze {freeze_sha[:12]} already has a completed locked-test run "
+            f"({completed[0]['run_id']}); a new confirmatory run needs a new freeze"
+        )
+    if previous and not rerun_reason:
+        raise ControllerError(
+            f"{len(previous)} earlier locked-test attempt(s) for this freeze did not complete; "
+            "pass --rerun-reason describing the infrastructure failure"
+        )
+
+
+def require_clean_tree() -> None:
+    if git("status", "--porcelain", check=False):
+        raise ControllerError("the locked test requires a clean, committed working tree")
+
+
 def parse_status(output: str) -> tuple[str | None, str | None]:
     """Parse ``kaggle kernels status`` output into (STATE, failure message)."""
 
@@ -248,7 +298,9 @@ def build_run_config(args: argparse.Namespace, code_commit: str, run_id: str) ->
     from rulegate.stage2 import BENCHMARK_COMMIT, DEFAULT_MODEL_ID, DEFAULT_SEED
 
     revision = args.model_revision
-    if args.mode in {"run-design", "stage3-design"} and not COMMIT_RE.fullmatch(revision or ""):
+    if args.mode in {"run-design", "stage3-design", "locked-test"} and not COMMIT_RE.fullmatch(
+        revision or ""
+    ):
         raise ControllerError(f"{args.mode} requires --model-revision <40-char HF commit>")
     if revision not in (None, "resolve") and not COMMIT_RE.fullmatch(revision):
         raise ControllerError("--model-revision must be a 40-char commit or 'resolve'")
@@ -270,6 +322,11 @@ def build_run_config(args: argparse.Namespace, code_commit: str, run_id: str) ->
         "hf_token_dataset": getattr(args, "hf_token_dataset_ref", None),
         "hf_token_file": TOKEN_FILE,
     }
+    if args.mode == "locked-test":
+        config["confirm_locked_test"] = True
+        config["manifest"] = FREEZE_MANIFEST
+        config["freeze_manifest_sha256"] = getattr(args, "freeze_manifest_sha256", None)
+        config["rerun_reason"] = getattr(args, "rerun_reason", None)
     if args.mode == "stage3-design":
         conditions = [c.strip() for c in args.conditions.split(",") if c.strip()]
         if not conditions or not set(conditions) <= {"plain", "action-aware"}:
@@ -696,10 +753,29 @@ def build_report(record: dict[str, Any], output_dir: Path) -> tuple[str, dict[st
                 k: row[k] for k in ("requests", "calls", "input_tokens", "output_tokens",
                                     "latency_seconds", "failed_calls")
             }
-    if summary.get("stage") == 3:
+    if summary.get("stage") in (3, 5):
         stage3_lines, history_calls = _stage3_lines(summary)
         lines += stage3_lines
         lines += ["", f"All verifier outputs parsed: `{summary.get('all_verdicts_parsed')}`"]
+    confirmatory = summary.get("confirmatory")
+    if confirmatory:
+        lines += ["", "## Confirmatory decision (pre-registered, docs/frozen_protocol.md)", ""]
+        if "h1" in confirmatory:
+            delta = confirmatory["h1_delta_f1"]
+            lines += [
+                f"- Condition: `{confirmatory['condition']}` vs `full_sequential_both`",
+                f"- H1: **{confirmatory['h1']}** (delta F1 {delta['point_estimate']:+.4f}, "
+                f"95% CI [{delta['confidence_low']:+.4f}, {delta['confidence_high']:+.4f}], "
+                "margin -0.05)",
+                f"- H2: **{confirmatory['h2']}** (call reduction "
+                f"{confirmatory['h2_call_reduction']:.2%}, threshold 50%)",
+                f"- Overall: **{confirmatory['overall']}**",
+            ]
+        else:
+            lines.append(f"- {confirmatory['status']}: {confirmatory.get('reason')}")
+    if summary.get("freeze"):
+        lines.append(f"- Freeze: `{summary['freeze']['freeze_id']}` "
+                     f"(`{summary['freeze']['manifest_sha256']}`)")
     metric_lines = _metric_lines(summary)
     if metric_lines:
         lines += [
@@ -719,7 +795,7 @@ def build_report(record: dict[str, Any], output_dir: Path) -> tuple[str, dict[st
     if (
         artifacts
         and summary.get("classification") == "development_model"
-        and summary.get("stage") != 3
+        and summary.get("stage") not in (3, 5)
     ):
         from rulegate.stage2_gate import evaluate_stage2_gate
 
@@ -751,6 +827,8 @@ def build_report(record: dict[str, Any], output_dir: Path) -> tuple[str, dict[st
         "calls": history_calls,
         "all_outputs_parsed": summary.get("all_outputs_parsed"),
         "stage2_gate": gate_decision,
+        "freeze_manifest_sha256": (record.get("config") or {}).get("freeze_manifest_sha256"),
+        "confirmatory": summary.get("confirmatory"),
     }
     return "\n".join(lines) + "\n", history
 
@@ -792,11 +870,12 @@ def finalize(record: dict[str, Any]) -> dict[str, Any]:
     output_dir = fetch_outputs(record)
     report, history = build_report(record, output_dir)
     (run_dir / "report.md").write_text(report, encoding="utf-8")
-    REPORTS_ROOT.mkdir(parents=True, exist_ok=True)
-    (REPORTS_ROOT / f"{record['run_id']}.md").write_text(report, encoding="utf-8")
+    reports_root = LOCKED_REPORTS_ROOT if record["mode"] == "locked-test" else REPORTS_ROOT
+    reports_root.mkdir(parents=True, exist_ok=True)
+    (reports_root / f"{record['run_id']}.md").write_text(report, encoding="utf-8")
     diagnosis = write_local_diagnosis(output_dir, run_dir)
     record["runner_final_status"] = history["runner_final_status"]
-    record["report"] = str((REPORTS_ROOT / f"{record['run_id']}.md").relative_to(REPO_ROOT))
+    record["report"] = str((reports_root / f"{record['run_id']}.md").relative_to(REPO_ROOT))
     save_record(record)
     if not record.get("history_written"):
         HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -845,6 +924,22 @@ def cmd_run(args: argparse.Namespace) -> int:
     run_dir = run_dir_for(run_id)
     if args.accelerator == "none" and args.mode != "probe":
         raise ControllerError("--accelerator none is only allowed for --mode probe")
+    if args.mode == "locked-test":
+        from rulegate.freeze import manifest_sha256, verify_manifest
+
+        require_clean_tree()
+        manifest = verify_manifest(REPO_ROOT / FREEZE_MANIFEST)
+        args.freeze_manifest_sha256 = manifest_sha256(manifest)
+        check_locked_test_allowed(
+            args.freeze_manifest_sha256,
+            confirmed=args.confirm_locked_test,
+            rerun_reason=args.rerun_reason,
+        )
+        if args.model_revision not in (None, manifest["model"]["revision"]):
+            raise ControllerError("--model-revision differs from the frozen manifest")
+        args.model_revision = manifest["model"]["revision"]
+        args.dtype = manifest["model"]["dtype"]
+        args.quantization = manifest["model"]["quantization"]
     args.hf_token_dataset_ref = None
     if args.hf_token_dataset != "none":
         args.hf_token_dataset_ref = args.hf_token_dataset or f"{owner}/{TOKEN_DATASET_SLUG}"
@@ -930,8 +1025,13 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_parser("doctor", help="check local tools and Kaggle authentication")
 
     run = sub.add_parser("run", help="push a run, wait, download outputs and report")
-    run.add_argument("--mode", choices=("probe", "smoke-gpu", "run-design", "stage3-design"),
+    run.add_argument("--mode",
+                     choices=("probe", "smoke-gpu", "run-design", "stage3-design", "locked-test"),
                      required=True)
+    run.add_argument("--confirm-locked-test", action="store_true",
+                     help="required for the one confirmatory run on the 225 locked requests")
+    run.add_argument("--rerun-reason", default=None,
+                     help="locked test only: documented reason after a failed attempt")
     run.add_argument("--commit", default="HEAD", help="RuleGate commit (must be on origin)")
     run.add_argument("--repo-url", default=DEFAULT_REPO_URL)
     run.add_argument("--model-revision", default=None,

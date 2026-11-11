@@ -172,3 +172,16 @@ Classification: development model run on the design split only.
 - Decision (research lead): keep the v2 verifier; v3 recorded as a rejected
   candidate. Stage 2 GO (`8c58fa3`) and Stage 3 (`9469a85`) runs used v2;
   their recorded template hashes match the active hash, so no rerun is needed.
+
+## 2026-11-11 — Freeze `rulegate-freeze-v1` (no locked-test run yet)
+
+- Manifest `configs/freeze_v1.json` (SHA-256 `1cd7fc27c3e4…`) pins benchmark,
+  model revision and decoding, prompt IDs/hashes (Single v2, verifier v2,
+  plain-screening v1, action-aware-screening v1), analysis settings and
+  hashes of 16 source files. All frozen prompt hashes and settings equal the
+  Stage 3 GO run.
+- Added `rulegate.stage5` (the only route to the 225 locked requests; settings
+  from the verified manifest only; checkpoints per condition), Kaggle mode
+  `locked-test` with a one-run-per-freeze guard, and the pre-registered plan
+  `docs/frozen_protocol.md`. Stage 3 runners now accept explicit records.
+- 175 CPU tests passed. Locked-test inference: `NOT RUN`.

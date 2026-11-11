@@ -1,0 +1,89 @@
+{
+  "analysis": {
+    "h1": {
+      "bootstrap": "paired by request, 10000 resamples, seed 484654, percentile 95% CI",
+      "delta": "mean_policy_f1(action_aware_screening) - mean_policy_f1(full_sequential_both)",
+      "margin": 0.05,
+      "rule": "GO if CI_low > -0.05; FAIL if CI_high <= -0.05; otherwise INCONCLUSIVE"
+    },
+    "h2": {
+      "counted": "every backend attempt: screening, verification, retries, fallbacks",
+      "rule": "GO if 1 - calls(action_aware)/calls(full) >= 0.50 on measured ledgers",
+      "threshold": 0.5
+    },
+    "overall": "research GO requires H1 GO and H2 GO",
+    "primary_metric": "mean of nine Appendix D policy-specific F1 scores, protocol reading (docs/protocol.md); zero denominator -> 0.0",
+    "secondary": [
+      "exact-match accuracy, compliant recall, violating detection recall",
+      "per-policy F1 and Appendix D counts",
+      "gold-policy retention, screening-induced false negatives (proposal definition)",
+      "candidate-count distribution, zero-candidate and invalid screens, fallbacks",
+      "input/output tokens and latency for every condition",
+      "plain vs action-aware (H3) and Single Prompting (efficiency control): descriptive"
+    ]
+  },
+  "benchmark": {
+    "commit": "2d1944f2efa362021f931638b724714f7b74f288",
+    "data_manifest_sha256": "8755468a62a7b4153fe514e004469662ca41f477e55f102c1ae168e7fd8bd075",
+    "expected_requests": 225,
+    "repository": "https://github.com/PedroCV/policy-compliance-requests-AI",
+    "split": "test"
+  },
+  "conditions": {
+    "action_aware_screening": "primary (RuleGate): action-aware screen + verifier",
+    "full_sequential_both": "reference comparator for H1 and H2",
+    "plain_screening": "ablation (H3, exploratory)",
+    "single_prompting": "efficiency control (descriptive)"
+  },
+  "freeze_id": "rulegate-freeze-v1",
+  "frozen_on": "2026-11-11",
+  "frozen_source_sha256": {
+    "accounting.py": "fc1596031d0bb2c86d5198a904bf7f9d66ddc5354b4e81bb1744c3f60b420072",
+    "baselines.py": "f2e463801ef321bc52e982bafcd5c27e4b6e9061af4471375f3e14a4218303e6",
+    "bootstrap.py": "70beb9170dae69b2a87b9bd72eb42475fa4678431568be18af86bdc29a4539f9",
+    "data.py": "7c724a1fe9bb5c16348f9110d78c9c875a4bcb741c5b8e913d816ca564a21f16",
+    "decisions.py": "1d144d41383e360bdc531da66ff0fc9aa7b434d018988bc41d4378a29ce73c29",
+    "jsonreply.py": "228ced02e5750c770f301693ff2f85df268df79534d7c36a6552cea41a1a5131",
+    "methods.py": "7b85311ff980ee4a7f803bffa1c63f1538ad05389af5661bb88f39e0d9dfd0a1",
+    "metrics.py": "1c5fe27f1baa5e7ca48fd7643a50d8e0d6003f64b7c24849d12684003a208da1",
+    "model_backend.py": "56d0956fa24867855f46ebc4cf225faa4cb5a5fa9049008d6c89cc1a0994b9a2",
+    "prompts.py": "85f8f931b3ee0c75a77334a43ab0512ff9eae32b619234bbc67182fb803cb2c0",
+    "schemas.py": "ab3c65dbd9ae501bc9bd2e877ee6278b9ea20c38aaaa908d4468d1f2c5c1103d",
+    "screening.py": "07ffde3ad3d5c85289ec8211e66fa41355fabd9fb6ae3b7ac44ab6c20b5cf12c",
+    "screening_prompts.py": "db69f4c0a50810cc97c4df4ca6cb86092758782cea350c4d0d097f0b0d94f320",
+    "stage3.py": "480cc09875fe9d57f197c23d08ce407657ce52d34a645d65cfd5aea188133c34",
+    "transformers_backend.py": "06bc73801128fd57126de67b973768e329ae20871935ea84dc83e0d4d5d0d792",
+    "verification.py": "d5f5b930487c533919efc8de5708e8b444f1e0f9f52b4218985eccc8de1a8431"
+  },
+  "model": {
+    "do_sample": false,
+    "dtype": "float16",
+    "max_attempts": 1,
+    "max_new_tokens": 128,
+    "model_id": "meta-llama/Llama-3.1-8B-Instruct",
+    "quantization": "none",
+    "revision": "0e9e39f249a16976918f6564b8830bc894c89659",
+    "runtime": "Kaggle NvidiaTeslaT4 (2 x Tesla T4), device_map=auto",
+    "screening_max_new_tokens": 384,
+    "seed": 484654,
+    "temperature": 0.0
+  },
+  "prompts": {
+    "action_aware_screening": {
+      "sha256": "0b27e5a161b8c532d66f02e668fb87942754184df9e75d8794a61d159bc5628c",
+      "template_id": "action-aware-screening-v1"
+    },
+    "plain_screening": {
+      "sha256": "1ce013c41a4899ab615f22a433ddbae8e38d4e38f805ae7edb63c0d8cd22c847",
+      "template_id": "plain-screening-v1"
+    },
+    "sequential_both_verifier": {
+      "sha256": "bce7616d38f334fcdf8f551cb544f780d311560cae7f90d448ae990c330d3d5a",
+      "template_id": "sequential-both-v2-reimplementation"
+    },
+    "single_prompting": {
+      "sha256": "1367621111d74e8fc652268b7c755a60430e5c565c24f8f25bc53c64dd2681fc",
+      "template_id": "single-prompting-v2-reimplementation"
+    }
+  }
+}

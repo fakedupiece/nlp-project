@@ -72,5 +72,6 @@ version, so no screening prompt iteration was used.
 - Stage 4 integration checks are largely covered by this run (calls and
   predictions reconciled per condition, identical verifier verdicts on
   retained policies, candidate and latency logs). Verifier decision made
-  (v2). Remaining: freeze prompts, parsers and configuration for the locked
-  225-request run (Stage 5).
+  (v2). Prompts, parsers and configuration are frozen as
+  `rulegate-freeze-v1` (`docs/frozen_protocol.md`); the locked 225-request run
+  (Stage 5) awaits the research lead's go.

@@ -17,7 +17,9 @@ Llama-3.1-8B-Instruct on Kaggle (float16, 2 x T4) and passed every check of
 `rulegate.stage2_gate`; see [Stage 2 status](docs/stage2_status.md).
 **Stage 3 is GO** for action-aware screening on the 18 design requests (9/9
 gold policies retained, 3.44 policies verified per request, 0 invalid screens);
-see [Stage 3 status](docs/stage3_status.md). The
+see [Stage 3 status](docs/stage3_status.md). The configuration is frozen as
+`rulegate-freeze-v1` for the one locked-test run; see
+[frozen protocol](docs/frozen_protocol.md). The
 official benchmark was loaded and audited at commit
 `2d1944f2efa362021f931638b724714f7b74f288`:
 
@@ -46,7 +48,7 @@ python -m pip install -e '.[dev]'
 python -m pytest -q
 ```
 
-The current suite has 162 tests covering multiline parsing, leakage
+The current suite has 175 tests covering multiline parsing, leakage
 boundaries, Appendix D F1 corner cases, paired bootstrap decisions, strict screen
 parsing, full fallback, retry accounting, tokens, latency, baseline prompts,
 design-only artifacts, the optional Transformers adapter, H2 call reduction, the
@@ -128,6 +130,8 @@ verification, retries, auxiliary calls, and full fallback.
   plus screened conditions, screening recall, induced misses, indicative H1/H2).
   See [Stage 3 plan](docs/stage3_plan.md).
 - `src/rulegate/stage2_gate.py`: mechanical Stage 2 GO audit.
+- `src/rulegate/freeze.py`, `stage5.py`, `configs/freeze_v1.json`: frozen
+  manifest and the only execution route to the 225 locked requests.
 - `kaggle_exec/runner.py`, `kaggle_exec/controller.py`: remote Kaggle runner
   template and local push/poll/fetch/report controller.
 - `src/rulegate/methods.py`: typed method contracts.
