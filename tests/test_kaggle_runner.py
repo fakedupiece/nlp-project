@@ -213,7 +213,8 @@ def test_hf_errors_are_classified_without_leaking_details():
     class GatedRepoError(Exception):
         pass
 
-    assert "license" in runner.classify_hf_error(GatedRepoError("403"))
+    assert "not approved" in runner.classify_hf_error(GatedRepoError("403"))
+    assert "license" in runner.classify_hf_error(GatedRepoError("gated repo"))
     assert "rejected the token" in runner.classify_hf_error(Exception("401 Client Error"))
 
 
