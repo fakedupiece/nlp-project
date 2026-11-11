@@ -59,3 +59,11 @@ review). The action-aware template adds one step (identify action, target and
 content, then judge each policy against that) and three short output fields.
 Output: `{"labels": [...nine entries...]}`, plus `action`/`target`/`content`
 for action-aware. Generation cap 384 tokens for the screening call only.
+
+Before the first run, the label definitions and cues were aligned with the
+proposal (POSSIBLE = potential violation; UNCERTAIN = plausible but unclear
+violation; EXCLUDE = no plausible violation based on the request; consider
+explicit and implicit signs rather than word overlap; action-aware content =
+relevant explicit or implied request content). No run used the earlier draft,
+so the version ID stays `v1`; the template hash in run metadata identifies
+the exact text.

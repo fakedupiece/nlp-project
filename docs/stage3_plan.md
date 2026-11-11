@@ -1,6 +1,6 @@
 # Stage 3 plan: plain and action-aware screening
 
-Status (2026-11-11): **implemented and CPU-tested; no screening model run yet.**
+Status (2026-11-11): **implemented, CPU-tested and approved; first design run pending.**
 Stage 2 is GO (`docs/stage2_status.md`).
 
 ## What Stage 3 must show on the design split
@@ -63,16 +63,48 @@ false-positive policy raises F1, excluding a gold policy lowers it. H2 needs a
 mean of at most 3.5 verified policies per request (one screening call, no
 retries) for a 50% call reduction.
 
-## Decisions needed before freezing (yours)
+## Decisions (research lead, 2026-11-11)
 
-1. **Primary condition.** Proposed: action-aware screening is RuleGate (H1/H2
-   confirmatory); plain screening is the ablation.
-2. **Prompt iteration budget and selection rule on 18 requests.** Proposed: at
-   most two further versions per screening template; pick the version with
-   9/9 gold retention, then the fewest verified policies; every version keeps
-   its ID and hash; no change after freezing.
-3. **Run Stage 3 on Kaggle now** with `stage3-design` (both conditions, all 18
-   design requests, same model revision and settings as Stage 2).
+1. Action-aware screening is RuleGate (primary); plain screening is the
+   ablation; Single Prompting runs in the same session as the efficiency
+   control.
+2. The pre-registered per-policy F1 reading in `docs/protocol.md` stays the
+   primary metric. The goal is to carry out the proposal, not to replicate
+   every unreported detail of Cisneros-Velarde; H1 compares RuleGate with our
+   own full baseline under the same verifier and metric.
+3. Screening prompt wording follows the proposal: POSSIBLE = potential
+   violation, UNCERTAIN = plausible but unclear violation, EXCLUDE = no
+   plausible violation based on the request; explicit and implicit signs, not
+   word overlap; action-aware adds the requested action, target and relevant
+   explicit or implied content.
+4. Screening-induced false negatives use the proposal's definition: requests
+   that full Sequential with Both classified exactly right but the screened
+   system missed because the gold policy was excluded. Looser counts are also
+   reported.
+
+## Stage 3 gate (encoded in `rulegate.stage3.evaluate_stage3_gate`)
+
+From the stage-gate plan, applied to action-aware screening (plain screening
+is reported with the same checks as the H3 ablation):
+
+- all 18 design requests run;
+- gold policy retained for every violating design request (9/9);
+- mean verified policies per request <= 3.5 (nine-call baseline, one screening
+  call, no retries);
+- invalid screens <= 5% (0/18 expected);
+- every verifier output parsed.
+
+GO if all pass. PIVOT_WARNING if more than half of the requests keep >= 7
+policies. Otherwise CONTINUE: revise screening prompts on the design split
+only, at most two further versions per template, selecting by retention first
+and then mean verified policies; wording shared by both templates changes in
+both. With 9 violating requests, 9/9 retention has a 95% lower bound of 0.66:
+this is an engineering gate, not a recall claim.
+
+Known limitation carried forward: the v2 verifier over-flags on the design
+split (7/9 compliant requests flagged), unlike the paper's Llama-8B profile.
+The screener gate above does not depend on it; end-to-end F1 comparisons do.
+A bounded verifier-fidelity review is planned after Stage 3.
 
 ```bash
 python kaggle_exec/controller.py run --mode stage3-design --model-revision 0e9e39f249a16976918f6564b8830bc894c89659

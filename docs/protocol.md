@@ -154,3 +154,20 @@ synthetic tests. No real model score is required or permitted at this gate.
    <https://aclanthology.org/2026.acl-industry.21/>
 2. Official benchmark repository.
    <https://github.com/PedroCV/policy-compliance-requests-AI>
+
+## Amendments (2026-11-11)
+
+- **Token delivery.** Kaggle Secrets are not delivered to kernels pushed with
+  `kaggle kernels push`, so the Hugging Face token is read from a private Kaggle
+  dataset (approved by the research lead). It never enters Git, code, logs or
+  reports; see `docs/debug_log.md` D3.
+- **F1 reading.** A source cross-check found that the paper's request-level
+  categories are mutually exclusive (Table 1 rows sum to 100% and ACC = TP+TN),
+  while its per-policy Table 3 cannot be reproduced from Table 1 under either
+  per-policy reading. The research lead kept the pre-registered per-policy
+  reading above as the primary metric: the project carries out the proposal,
+  and H1 compares RuleGate with our own full baseline under the same metric.
+- **Data note.** The paper's tables imply 105 non-compliant / 120 compliant
+  requests; the released data and the paper text give 106 / 119. The released
+  data is used unchanged.
+

@@ -533,11 +533,17 @@ def _stage3_lines(summary: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
             f"- Verified policies per request: mean {screening['mean_verified_policies']:.2f}; "
             f"distribution {screening['candidate_count_distribution']}; labels "
             f"{screening['label_counts']}",
+            f"- Mean verified policies: compliant requests "
+            f"{screening.get('mean_verified_policies_compliant')}, violating requests "
+            f"{screening.get('mean_verified_policies_violating')}; requests with >= 7 verified "
+            f"{screening.get('requests_with_at_least_7_verified')}",
             f"- Gold-policy retention (screening recall): {retention['retained']}/"
             f"{retention['violating_requests']}",
-            f"- Screening-induced misses: gold excluded although full detected it "
-            f"{misses['gold_excluded_but_full_detected']}; full-verifier positives excluded "
-            f"{misses['full_positives_excluded']}; verdict mismatches on retained policies "
+            f"- Screening-induced false negatives (proposal definition: full exactly right, "
+            f"gold excluded): {misses.get('false_negatives_proposal_definition')}; gold excluded "
+            f"although full predicted it {misses['gold_excluded_but_full_detected']}; "
+            f"full-verifier positives excluded {misses['full_positives_excluded']}; verdict "
+            f"mismatches on retained policies "
             f"{screening['verdict_mismatches_vs_full_on_retained']}",
         ]
         comparison = entry.get("vs_full_sequential_both")
@@ -558,6 +564,17 @@ def _stage3_lines(summary: dict[str, Any]) -> tuple[list[str], dict[str, Any]]:
                 ci_low=delta["confidence_low"],
                 gold_retention=retention["retained"],
             )
+    gates = summary.get("stage3_gate") or {}
+    if gates:
+        lines += ["", "## Stage 3 gate (stage-gate plan, provisional engineering gate)", ""]
+        for name, gate in gates.items():
+            lines.append(f"- **{name}** ({gate['role']}): **{gate['decision']}**")
+            lines += [
+                f"  - {'PASS' if check['passed'] else 'FAIL'} `{check['name']}`: {check['detail']}"
+                for check in gate["checks"]
+            ]
+            if name in compact:
+                compact[name]["stage3_gate"] = gate["decision"]
     return lines, compact
 
 

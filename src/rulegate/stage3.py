@@ -29,7 +29,11 @@ from pathlib import Path
 from typing import Any
 
 from .accounting import compare_call_reduction, summarize_calls
-from .baselines import make_sequential_both_verifier
+from .baselines import (
+    SinglePromptingBaseline,
+    SinglePromptingError,
+    make_sequential_both_verifier,
+)
 from .bootstrap import paired_bootstrap_delta_f1
 from .data import load_benchmark
 from .decisions import decide_h1_bootstrap
@@ -42,7 +46,11 @@ from .model_backend import (
     ModelSettings,
     RawBackendResponse,
 )
-from .prompts import SEQUENTIAL_BOTH_TEMPLATE_ID, SEQUENTIAL_BOTH_TEMPLATE_SHA256
+from .prompts import (
+    SEQUENTIAL_BOTH_TEMPLATE_ID,
+    SEQUENTIAL_BOTH_TEMPLATE_SHA256,
+    SINGLE_PROMPT_TEMPLATE_ID,
+)
 from .schemas import POLICY_IDS, BenchmarkDataset, Policy
 from .screening import (
     PolicyRoute,
@@ -206,6 +214,97 @@ def run_full_reference(
     )
 
 
+SINGLE_PROMPTING = "single_prompting"
+
+
+def run_single_prompting(
+    dataset: BenchmarkDataset,
+    *,
+    backend: InstrumentedBackend,
+    limit: int,
+    max_attempts: int = 1,
+    progress: ProgressCallback = _no_progress,
+) -> ConditionRun:
+    """Single Prompting efficiency control (one all-policy call per request)."""
+
+    baseline = SinglePromptingBaseline(backend=backend, policies=dataset.policies)
+    predictions = []
+    records = dataset.design_records[:limit]
+    for index, record in enumerate(records, start=1):
+        request = record.to_inference_request()
+        start = len(backend.ledger.records)
+        try:
+            result = baseline.predict_with_trace(request, max_attempts=max_attempts)
+        except SinglePromptingError:
+            status, predicted = "failed", ()
+        else:
+            status, predicted = "ok", result.predicted_policy_ids
+        call_ids = tuple(r.call_id for r in backend.ledger.records[start:])
+        predictions.append(
+            ConditionPrediction(
+                request_id=request.request_id,
+                status=status,
+                predicted_policy_ids=tuple(predicted),
+                checked_policy_ids=POLICY_IDS,
+                failed_policy_ids=(),
+                screen_labels=(),
+                screen_valid=None,
+                fallback_used=False,
+                screening_call_ids=(),
+                verification_call_ids=call_ids,
+            )
+        )
+        progress(f"{SINGLE_PROMPTING} {index}/{len(records)} status={status}")
+    return ConditionRun(
+        SINGLE_PROMPTING, tuple(r.request_id for r in records), tuple(predictions), backend.ledger
+    )
+
+
+# Stage-gate plan, Stage 3 provisional GO (engineering gate on 18 design requests;
+# not a statistical recall claim). The 3.5 bound assumes a nine-call full baseline
+# and one screening call without retries; measured call reduction is reported too.
+STAGE3_MAX_MEAN_VERIFIED = 3.5
+STAGE3_MAX_INVALID_RATE = 0.05
+PRIMARY_CONDITION = "action_aware_screening"
+
+
+def evaluate_stage3_gate(
+    entry: dict[str, Any], *, request_count: int, expected_requests: int = 18
+) -> dict[str, Any]:
+    """Apply the Stage 3 provisional gate to one screening condition's summary."""
+
+    screening = entry["screening"]
+    retention = screening["gold_policy_retention"]
+    invalid_rate = screening["invalid_screens_full_fallback"] / screening["requests"]
+    checks = [
+        ("all_design_requests", request_count == expected_requests,
+         f"{request_count}/{expected_requests} requests"),
+        ("gold_policy_retention_all", retention["violating_requests"] > 0
+         and retention["retained"] == retention["violating_requests"],
+         f"{retention['retained']}/{retention['violating_requests']} retained"),
+        ("mean_verified_at_most_3_5",
+         screening["mean_verified_policies"] <= STAGE3_MAX_MEAN_VERIFIED,
+         f"mean {screening['mean_verified_policies']:.2f}"),
+        ("invalid_screen_rate_at_most_5_percent", invalid_rate <= STAGE3_MAX_INVALID_RATE,
+         f"{screening['invalid_screens_full_fallback']}/{screening['requests']} invalid"),
+        ("all_verifier_outputs_parsed", entry["requests_with_failed_verdicts"] == 0,
+         f"{entry['requests_with_failed_verdicts']} requests with failed verdicts"),
+    ]
+    pivot_warning = screening["requests_with_at_least_7_verified"] > screening["requests"] / 2
+    if all(passed for _, passed, _ in checks):
+        decision = "GO"
+    elif pivot_warning:
+        decision = "PIVOT_WARNING"
+    else:
+        decision = "CONTINUE"
+    return {
+        "decision": decision,
+        "pivot_warning": pivot_warning,
+        "checks": [{"name": n, "passed": p, "detail": d} for n, p, d in checks],
+        "note": "engineering gate on 18 design requests, not a recall or H1/H2 claim",
+    }
+
+
 def run_screened_condition(
     dataset: BenchmarkDataset,
     condition: ScreeningCondition,
@@ -283,6 +382,7 @@ def screening_report(
         p for p in violating if set(gold[p.request_id]) <= set(p.checked_policy_ids)
     ]
     full_by_id = {p.request_id: p for p in full.predictions} if full else {}
+    induced_false_negatives = 0
     gold_excluded_full_detected = 0
     full_positives_excluded = 0
     verdict_mismatches = 0
@@ -292,15 +392,30 @@ def screening_report(
             continue
         excluded = set(POLICY_IDS) - set(p.checked_policy_ids)
         full_positive = set(reference.predicted_policy_ids)
+        gold_ids = set(gold[p.request_id])
         full_positives_excluded += len(full_positive & excluded)
-        gold_excluded_full_detected += len(set(gold[p.request_id]) & full_positive & excluded)
+        gold_excluded_full_detected += len(gold_ids & full_positive & excluded)
+        # Proposal definition: full Sequential classified the request exactly
+        # right, and the screen excluded its gold policy.
+        if gold_ids and full_positive == gold_ids and gold_ids & excluded:
+            induced_false_negatives += 1
         for policy_id in set(p.checked_policy_ids) - set(p.failed_policy_ids):
             if policy_id in reference.failed_policy_ids:
                 continue
             if (policy_id in p.predicted_policy_ids) != (policy_id in full_positive):
                 verdict_mismatches += 1
+    compliant = [p for p in run.predictions if not gold[p.request_id]]
+
+    def mean_checked(items: Sequence[ConditionPrediction]) -> float | None:
+        return sum(len(p.checked_policy_ids) for p in items) / len(items) if items else None
+
     return {
         "requests": len(run.predictions),
+        "mean_verified_policies_compliant": mean_checked(compliant),
+        "mean_verified_policies_violating": mean_checked(violating),
+        "requests_with_at_least_7_verified": sum(
+            1 for p in run.predictions if len(p.checked_policy_ids) >= 7
+        ),
         "valid_screens": sum(1 for p in run.predictions if p.screen_valid),
         "invalid_screens_full_fallback": sum(1 for p in run.predictions if p.fallback_used),
         "valid_zero_candidate_screens": sum(
@@ -317,6 +432,7 @@ def screening_report(
             "recall": len(retained) / len(violating) if violating else None,
         },
         "screening_induced_misses": {
+            "false_negatives_proposal_definition": induced_false_negatives if full else None,
             "gold_excluded_but_full_detected": gold_excluded_full_detected if full else None,
             "full_positives_excluded": full_positives_excluded if full else None,
         },
@@ -389,7 +505,8 @@ def write_stage3_artifacts(
                 1 for p in run.predictions if p.status != "ok"
             ),
         }
-        if run.name != FULL_REFERENCE:
+        screened = run.name not in {FULL_REFERENCE, SINGLE_PROMPTING}
+        if screened:
             entry["screening"] = screening_report(run, gold, full)
         if classification != "synthetic_smoke" and run.all_verdicts_parsed:
             entry["metrics"] = asdict(
@@ -397,7 +514,7 @@ def write_stage3_artifacts(
             )
         if (
             full is not None
-            and run is not full
+            and screened
             and classification != "synthetic_smoke"
             and run.all_verdicts_parsed
             and full.all_verdicts_parsed
@@ -432,6 +549,14 @@ def write_stage3_artifacts(
                 "h1_status": decide_h1_bootstrap(bootstrap).status.value,
             }
         summary["conditions"][run.name] = entry
+    summary["stage3_gate"] = {
+        name: {
+            "role": "primary (RuleGate)" if name == PRIMARY_CONDITION else "ablation",
+            **evaluate_stage3_gate(entry, request_count=len(request_ids)),
+        }
+        for name, entry in summary["conditions"].items()
+        if "screening" in entry
+    }
     _write_json(destination / "summary.json", summary)
     _write_json(
         destination / "run_metadata.json",
@@ -481,6 +606,8 @@ def _fake_stage3_backend(settings: ModelSettings, count: int) -> InstrumentedBac
             if request.prompt_template == ACTION_AWARE_SCREENING_TEMPLATE_ID:
                 payload = {"action": "a", "target": "t", "content": "c", **payload}
             return RawBackendResponse(json.dumps(payload))
+        if request.prompt_template == SINGLE_PROMPT_TEMPLATE_ID:
+            return RawBackendResponse('{"violated_policy_ids": []}')
         return RawBackendResponse('{"violated": false}')
 
     return InstrumentedBackend(FakeBackend([respond] * count), settings, CallLedger())
@@ -529,6 +656,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         budget = design_count * 9 * 2
         runs = [run_full_reference(dataset, backend=_fake_stage3_backend(settings, budget),
                                    limit=design_count)]
+        runs.append(run_single_prompting(dataset, backend=_fake_stage3_backend(settings, budget),
+                                         limit=design_count))
         runs += [
             run_screened_condition(dataset, condition,
                                    backend=_fake_stage3_backend(settings, budget),
@@ -553,7 +682,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             limit=args.limit,
             max_attempts=args.max_attempts,
             progress=_progress_to_stderr,
-        )
+        ),
+        run_single_prompting(
+            dataset,
+            backend=InstrumentedBackend(raw_backend, settings, CallLedger()),
+            limit=args.limit,
+            max_attempts=args.max_attempts,
+            progress=_progress_to_stderr,
+        ),
     ]
     for condition in args.conditions:
         runs.append(

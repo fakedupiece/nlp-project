@@ -203,9 +203,12 @@ def test_screened_condition_verifies_only_retained_policies_and_falls_back(tmp_p
                                                "recall": 1.0}
     # Full predicted 4 (request 0) and 5 (request 1); screening excluded both.
     assert report["screening_induced_misses"] == {
+        "false_negatives_proposal_definition": 0,
         "gold_excluded_but_full_detected": 0,
         "full_positives_excluded": 2,
     }
+    assert report["mean_verified_policies_compliant"] == 0.0
+    assert report["mean_verified_policies_violating"] == 5.0
     assert report["verdict_mismatches_vs_full_on_retained"] == 0
     assert report["candidate_count_distribution"] == {0: 1, 1: 1, 9: 1}
 
@@ -242,3 +245,69 @@ def test_stage3_artifacts_report_h1_h2_without_model_text(tmp_path):
     metadata = json.loads((tmp_path / "out" / "run_metadata.json").read_text())
     assert metadata["screening"]["action_aware_screening"]["max_new_tokens"] == 384
     assert metadata["locked_test_used"] is False
+
+
+def test_proposal_definition_counts_only_exactly_right_full_requests(tmp_path):
+    dataset = load_benchmark(_write_dataset(tmp_path / "d"), strict_counts=False, id_key=KEY)
+    ids = [r.request_id for r in dataset.design_records]
+    # Full: request 1 exactly right [2]; request 2 right policy plus an extra [7, 9].
+    positives = {(ids[1], 2), (ids[2], 7), (ids[2], 9)}
+    screens = [
+        json.dumps({"labels": _labels(retain=(), uncertain=())}),
+        json.dumps({"labels": _labels(retain=(5,), uncertain=())}),  # drops gold 2
+        json.dumps({"labels": _labels(retain=(9,), uncertain=())}),  # drops gold 7
+    ]
+    full = run_full_reference(dataset, backend=_scripted_backend([], positives), limit=3)
+    plain = run_screened_condition(
+        dataset, CONDITIONS["plain"], backend=_scripted_backend(screens, positives), limit=3
+    )
+    gold = {r.request_id: r.gold_violated_policy_ids for r in dataset.design_records}
+    misses = screening_report(plain, gold, full)["screening_induced_misses"]
+    assert misses["false_negatives_proposal_definition"] == 1  # only request 1
+    assert misses["gold_excluded_but_full_detected"] == 2
+
+
+def _gate_entry(retained, violating, mean_k, invalid=0, at_least_7=0, failed=0):
+    return {
+        "requests_with_failed_verdicts": failed,
+        "screening": {
+            "requests": 18,
+            "gold_policy_retention": {"retained": retained, "violating_requests": violating},
+            "mean_verified_policies": mean_k,
+            "invalid_screens_full_fallback": invalid,
+            "requests_with_at_least_7_verified": at_least_7,
+        },
+    }
+
+
+@pytest.mark.parametrize(
+    "entry, decision",
+    [
+        (_gate_entry(9, 9, 3.5), "GO"),
+        (_gate_entry(8, 9, 2.0), "CONTINUE"),
+        (_gate_entry(9, 9, 3.6), "CONTINUE"),
+        (_gate_entry(9, 9, 3.0, invalid=1), "CONTINUE"),
+        (_gate_entry(9, 9, 3.0, failed=1), "CONTINUE"),
+        (_gate_entry(9, 9, 8.0, at_least_7=15), "PIVOT_WARNING"),
+    ],
+)
+def test_stage3_gate_follows_the_stage_gate_plan(entry, decision):
+    from rulegate.stage3 import evaluate_stage3_gate
+
+    assert evaluate_stage3_gate(entry, request_count=18)["decision"] == decision
+    assert evaluate_stage3_gate(_gate_entry(9, 9, 1.0), request_count=17)["decision"] == "CONTINUE"
+
+
+def test_single_prompting_control_runs_in_the_same_session(tmp_path):
+    from rulegate.stage3 import SINGLE_PROMPTING, run_single_prompting
+
+    dataset = load_benchmark(_write_dataset(tmp_path / "d"), strict_counts=False, id_key=KEY)
+    outcomes = [RawBackendResponse('{"violated_policy_ids": [2]}', 400, 9),
+                RawBackendResponse("not json", 400, 9),
+                RawBackendResponse('{"violated_policy_ids": []}', 400, 9)]
+    backend = InstrumentedBackend(FakeBackend(outcomes), ModelSettings(model_id="fake/m"),
+                                  CallLedger())
+    run = run_single_prompting(dataset, backend=backend, limit=3)
+    assert run.name == SINGLE_PROMPTING
+    assert [p.status for p in run.predictions] == ["ok", "failed", "ok"]
+    assert [len(p.verification_call_ids) for p in run.predictions] == [1, 1, 1]

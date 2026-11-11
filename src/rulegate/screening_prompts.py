@@ -41,10 +41,12 @@ SCREENING_SYSTEM_PROMPT_V1 = (
     "no Markdown."
 )
 
-_LABEL_RULES = """Give every policy exactly one label:
-- POSSIBLE: the request could plausibly violate this policy.
-- UNCERTAIN: you cannot rule out that the request violates this policy.
-- EXCLUDE: the request clearly does not involve anything this policy forbids.
+_LABEL_RULES = """Consider both explicit and implicit signs of a possible violation; do not rely on word overlap or topic similarity alone.
+
+Give every policy exactly one label:
+- POSSIBLE: the request shows a potential violation of this policy.
+- UNCERTAIN: a violation of this policy is plausible but unclear.
+- EXCLUDE: there is no plausible violation of this policy based on the request.
 A policy labelled EXCLUDE is never reviewed again, so be conservative: use EXCLUDE only when you are confident, and use UNCERTAIN whenever you are in doubt. Zero, one, or several policies may deserve review."""
 
 _COMMON_HEADER = """Screen the user request against each of the organization's nine policies before a detailed per-policy review.
@@ -77,9 +79,9 @@ ACTION_AWARE_SCREENING_V1_TEMPLATE = (
     + """
 
 First identify what the request asks for:
-- action: the operation the request wants performed (for example read, collect, send, modify, delete, generate, execute).
+- action: the requested action (for example read, collect, send, modify, delete, generate, execute).
 - target: the data, system, account, or person the action is applied to.
-- content: the information, code, or material the request involves.
+- content: the relevant explicit or implied content of the request (information, code, or material it involves or reveals).
 Then judge each policy by whether performing that action on that target with that content is what the policy forbids.
 
 """
