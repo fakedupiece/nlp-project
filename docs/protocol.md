@@ -170,4 +170,3 @@ synthetic tests. No real model score is required or permitted at this gate.
 - **Data note.** The paper's tables imply 105 non-compliant / 120 compliant
   requests; the released data and the paper text give 106 / 119. The released
   data is used unchanged.
-
